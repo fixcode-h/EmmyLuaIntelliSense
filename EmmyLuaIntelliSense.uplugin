@@ -1,0 +1,34 @@
+{
+	"FileVersion": 3,
+	"Version": 1,
+	"VersionName": "1.0",
+	"FriendlyName": "EmmyLuaIntelliSense",
+	"Description": "",
+	"Category": "Other",
+	"CreatedBy": "",
+	"CreatedByURL": "",
+	"DocsURL": "",
+	"MarketplaceURL": "",
+	"SupportURL": "",
+	"CanContainContent": true,
+	"IsBetaVersion": false,
+	"IsExperimentalVersion": false,
+	"Installed": false,
+	"Enabled": true,
+    "EnabledByDefault": true,
+	"Modules": [
+		{
+			"Name": "EmmyLuaIntelliSense",
+			"Type": "Editor",
+			"LoadingPhase": "Default",
+			"WhitelistPlatforms": [ "Win64", "Win32", "Mac", "Linux" ]
+		}
+	],
+	"Plugins": [
+		{
+			"Name": "UnLua",
+			"Enabled": true,
+			"Optional": true
+		}
+	]
+}
