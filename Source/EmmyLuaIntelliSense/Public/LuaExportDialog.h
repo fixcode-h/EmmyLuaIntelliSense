@@ -15,6 +15,9 @@ class EMMYLUAINTELLISENSE_API FLuaExportDialog
 public:
     /** 显示导出确认对话框 */
     static void ShowExportConfirmation();
+    
+    /** 显示导出确认对话框（带文件数量） */
+    static void ShowExportConfirmation(int32 FileCount);
 };
 
 /**

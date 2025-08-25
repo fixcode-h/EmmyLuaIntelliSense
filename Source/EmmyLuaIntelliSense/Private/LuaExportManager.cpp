@@ -163,7 +163,7 @@ void ULuaExportManager::ExportAll()
             
             SlowTask.EnterProgressFrame(1.0f, FText::FromString(FString::Printf(TEXT("正在导出蓝图: %s"), *AssetData.AssetName.ToString())));
             
-            if (ShouldExport(AssetData, true))
+            if (ShouldExportBlueprint(AssetData, true))
             {
                 if (UBlueprint* Blueprint = LoadObject<UBlueprint>(nullptr, *AssetData.ObjectPath.ToString()))
                 {
@@ -231,9 +231,6 @@ void ULuaExportManager::ExportIncremental()
     FScopedSlowTask SlowTask(TotalTasks, FText::FromString(TEXT("正在进行增量导出...")));
     SlowTask.MakeDialog();
     
-    // 记录导出时间
-    FDateTime ExportTime = FDateTime::Now();
-
     // 导出待处理的蓝图
     for (const FString& BlueprintPath : PendingBlueprints)
     {
@@ -249,7 +246,8 @@ void ULuaExportManager::ExportIncremental()
         if (UBlueprint* Blueprint = LoadObject<UBlueprint>(nullptr, *BlueprintPath))
         {
             ExportBlueprint(Blueprint);
-            // 更新导出缓存
+            // 在实际导出后立即记录导出时间并更新缓存
+            FDateTime ExportTime = FDateTime::Now();
             UpdateExportCache(BlueprintPath, ExportTime);
             ExportedCount++;
         }
@@ -272,7 +270,8 @@ void ULuaExportManager::ExportIncremental()
                 SlowTask.EnterProgressFrame(1.0f, FText::FromString(FString::Printf(TEXT("正在导出原生类型: %s"), *Field->GetName())));
                 
                 ExportNativeType(Field);
-                // 更新导出缓存
+                // 在实际导出后立即记录导出时间并更新缓存
+                FDateTime ExportTime = FDateTime::Now();
                 FString FieldPathName = Field->GetPathName();
                 UpdateExportCache(FieldPathName, ExportTime);
                 ExportedCount++;
@@ -299,7 +298,8 @@ void ULuaExportManager::ExportIncremental()
         TArray<const UField*> AllNativeTypes;
         CollectNativeTypes(AllNativeTypes);
         ExportUETypes(AllNativeTypes);
-        // 更新UE核心类型的导出缓存
+        // 在实际导出后立即记录导出时间并更新UE核心类型的导出缓存
+        FDateTime ExportTime = FDateTime::Now();
         UpdateExportCache(TEXT("UE"), ExportTime);
         UpdateExportCache(TEXT("UE4"), ExportTime);
         UpdateExportCache(TEXT("UnLua"), ExportTime);
@@ -322,6 +322,17 @@ bool ULuaExportManager::HasPendingChanges() const
     return PendingBlueprints.Num() > 0 || PendingNativeTypes.Num() > 0;
 }
 
+int32 ULuaExportManager::GetPendingFilesCount() const
+{
+    int32 Count = PendingBlueprints.Num() + PendingNativeTypes.Num();
+    // 如果有原生类型需要导出，还会额外生成UE核心类型文件
+    if (PendingNativeTypes.Num() > 0)
+    {
+        Count += 3; // UE.lua, UE4.lua, UnLua.lua
+    }
+    return Count;
+}
+
 void ULuaExportManager::ClearPendingChanges()
 {
     PendingBlueprints.Empty();
@@ -330,7 +341,7 @@ void ULuaExportManager::ClearPendingChanges()
 
 void ULuaExportManager::OnAssetAdded(const FAssetData& AssetData)
 {
-    if (ShouldExport(AssetData))
+    if (ShouldExportBlueprint(AssetData))
     {
         PendingBlueprints.Add(AssetData.ObjectPath.ToString());
     }
@@ -355,7 +366,7 @@ void ULuaExportManager::OnAssetRenamed(const FAssetData& AssetData, const FStrin
         DeleteFile(TEXT("/Game"), OldFileName);
         
         // 添加新文件到待导出列表
-        if (ShouldExport(AssetData))
+        if (ShouldExportBlueprint(AssetData))
         {
             PendingBlueprints.Add(AssetData.ObjectPath.ToString());
         }
@@ -364,7 +375,7 @@ void ULuaExportManager::OnAssetRenamed(const FAssetData& AssetData, const FStrin
 
 void ULuaExportManager::OnAssetUpdated(const FAssetData& AssetData)
 {
-    if (ShouldExport(AssetData))
+    if (ShouldExportBlueprint(AssetData))
     {
         PendingBlueprints.Add(AssetData.ObjectPath.ToString());
     }
@@ -537,15 +548,23 @@ void ULuaExportManager::CollectNativeTypes(TArray<const UField*>& Types)
     UE_LOG(LogTemp, Log, TEXT("CollectNativeTypes: Collected %d valid types"), Types.Num());
 }
 
-bool ULuaExportManager::IsBlueprint(const FAssetData& AssetData) const
+bool ULuaExportManager::IsBlueprint(const FAssetData& AssetData)
 {
     return AssetData.AssetClass == UBlueprint::StaticClass()->GetFName();
 }
 
-bool ULuaExportManager::ShouldExport(const FAssetData& AssetData, bool bLoad) const
+bool ULuaExportManager::ShouldExportBlueprint(const FAssetData& AssetData, bool bLoad) const
 {
     if (!IsBlueprint(AssetData))
     {
+        return false;
+    }
+    
+    // 检查路径是否应该被排除
+    FString AssetPath = AssetData.ObjectPath.ToString();
+    if (ShouldExcludeFromExport(AssetPath))
+    {
+        UE_LOG(LogTemp, Verbose, TEXT("[EXPORT] Blueprint excluded from export: %s"), *AssetPath);
         return false;
     }
     
@@ -554,7 +573,6 @@ bool ULuaExportManager::ShouldExport(const FAssetData& AssetData, bool bLoad) co
     if (Settings && !Settings->bExportBlueprintFiles)
     {
         // 如果禁用了蓝图导出，跳过所有蓝图
-        FString AssetPath = AssetData.ObjectPath.ToString();
         UE_LOG(LogTemp, Log, TEXT("[EXPORT] Blueprint export disabled, skipping: %s"), *AssetPath);
         return false;
     }
@@ -804,16 +822,9 @@ void ULuaExportManager::ScanExistingAssets()
     UE_LOG(LogTemp, Log, TEXT("[SCAN] Found %d blueprint assets, checking for export..."), BlueprintAssets.Num());
     for (const FAssetData& AssetData : BlueprintAssets)
     {
-        if (ShouldExport(AssetData))
+        if (ShouldExportBlueprint(AssetData))
         {
             FString AssetPath = AssetData.ObjectPath.ToString();
-            
-            // 检查是否应该排除此路径
-            if (ShouldExcludeFromExport(AssetPath))
-            {
-                UE_LOG(LogTemp, Verbose, TEXT("[SCAN] Excluded Blueprint: %s"), *AssetPath);
-                continue;
-            }
             
             // 直接获取完整的文件路径，使用重载版本的ShouldReexport避免重复转换
               FString AssetFilePath;
@@ -1052,12 +1063,14 @@ bool ULuaExportManager::ShouldReexport(const FString& AssetPath, const FDateTime
         
         // 如果资源修改时间晚于上次导出时间，需要重新导出
         bool bShouldReexport = AssetModifyTime > *CachedTime;
-        UE_LOG(LogTemp, Log, TEXT("[REEXPORT] %s: Asset time=%s, Cache time=%s, Should reexport=%s"), 
-            *AssetPath, 
-            *AssetModifyTime.ToString(), 
-            *CachedTime->ToString(), 
-            bShouldReexport ? TEXT("YES") : TEXT("NO"));
-        
+        if (bShouldReexport)
+        {
+            UE_LOG(LogTemp, Log, TEXT("[REEXPORT] %s: Asset time=%s, Cache time=%s, Should reexport=%s"), 
+              *AssetPath, 
+              *AssetModifyTime.ToString(), 
+              *CachedTime->ToString(), 
+              bShouldReexport ? TEXT("YES") : TEXT("NO"));  
+        }
         return bShouldReexport;
     }
 }
@@ -1267,38 +1280,26 @@ void ULuaExportManager::LoadExcludedPathsFromFile(TArray<FString>& OutExcludedPa
         // 如果找不到插件，回退到项目的Config目录
         ConfigFilePath = FPaths::Combine(FPaths::ProjectConfigDir(), TEXT("EmmyLuaIntelliSense"), TEXT("ExcludedPaths.json"));
     }
-    
-    UE_LOG(LogTemp, Log, TEXT("[CONFIG] Loading excluded paths from: %s"), *ConfigFilePath);
-    UE_LOG(LogTemp, Log, TEXT("[CONFIG] File exists check: %s"), FPaths::FileExists(ConfigFilePath) ? TEXT("YES") : TEXT("NO"));
-    
+
     if (!FPaths::FileExists(ConfigFilePath))
     {
         UE_LOG(LogTemp, Warning, TEXT("[CONFIG] Excluded paths config file not found, using default exclusions: %s"), *ConfigFilePath);
-        LoadDefaultExcludedPaths(OutExcludedPaths);
         return;
     }
     
     FString JsonString;
     if (!FFileHelper::LoadFileToString(JsonString, *ConfigFilePath))
     {
-        UE_LOG(LogTemp, Warning, TEXT("[CONFIG] Failed to load excluded paths config file: %s"), *ConfigFilePath);
-        LoadDefaultExcludedPaths(OutExcludedPaths);
         return;
     }
-    
-    UE_LOG(LogTemp, Log, TEXT("[CONFIG] Successfully loaded JSON file, size: %d characters"), JsonString.Len());
-    
+
     TSharedPtr<FJsonObject> JsonObject;
     TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(JsonString);
     
     if (!FJsonSerializer::Deserialize(Reader, JsonObject) || !JsonObject.IsValid())
     {
-        UE_LOG(LogTemp, Warning, TEXT("[CONFIG] Failed to parse excluded paths JSON config"));
-        LoadDefaultExcludedPaths(OutExcludedPaths);
         return;
     }
-    
-    UE_LOG(LogTemp, Log, TEXT("[CONFIG] Successfully parsed JSON object"));
     
     const TArray<TSharedPtr<FJsonValue>>* PathsArray;
     if (JsonObject->TryGetArrayField(TEXT("excludedPaths"), PathsArray))
@@ -1320,99 +1321,6 @@ void ULuaExportManager::LoadExcludedPathsFromFile(TArray<FString>& OutExcludedPa
         {
             UE_LOG(LogTemp, Log, TEXT("[CONFIG] Sample path [%d]: %s"), i, *OutExcludedPaths[i]);
         }
-    }
-    else
-    {
-        UE_LOG(LogTemp, Warning, TEXT("[CONFIG] No 'excludedPaths' array found in config file"));
-        LoadDefaultExcludedPaths(OutExcludedPaths);
-    }
-}
-
-void ULuaExportManager::LoadDefaultExcludedPaths(TArray<FString>& OutExcludedPaths) const
-{
-    // 默认的排除路径列表 - 只排除在业务代码中绝对不会用到的路径
-    OutExcludedPaths = {
-        // 测试相关
-        TEXT("/RuntimeTests"),
-        TEXT("/UnLuaTestSuite"),
-        TEXT("/Script/RuntimeTests"),
-        
-        // 编辑器专用工具和界面
-        TEXT("/Script/EditorStyle"),
-        TEXT("/Script/EditorWidgets"),
-        TEXT("/Script/UnrealEd"),
-        TEXT("/Script/ToolMenus"),
-        TEXT("/Script/PropertyEditor"),
-        TEXT("/Script/ContentBrowser"),
-        TEXT("/Script/AssetTools"),
-        TEXT("/Script/LevelEditor"),
-        TEXT("/Script/Sequencer"),
-        TEXT("/Script/MovieSceneTools"),
-        TEXT("/Script/MovieSceneCapture"),
-        TEXT("/Script/BlueprintGraph"),
-        TEXT("/Script/KismetCompiler"),
-        TEXT("/Script/MaterialEditor"),
-        TEXT("/Script/MaterialBaking"),
-        TEXT("/Script/AdvancedPreviewScene"),
-        TEXT("/Script/StatsViewer"),
-        TEXT("/Script/CurveEditor"),
-        TEXT("/Script/ContentBrowserData"),
-        TEXT("/Script/ClassViewer"),
-        
-        // 特定插件（通常不在业务代码中使用）
-        TEXT("/MagicLeapPassableWorld"),
-        TEXT("/Script/MagicLeapPassableWorld"),
-        TEXT("/DatasmithContent"),
-        TEXT("/Script/DatasmithContent"),
-        
-        // 交互工具框架（编辑器专用）
-        TEXT("/Script/InteractiveToolsFramework"),
-        TEXT("/Script/EditorInteractiveToolsFramework"),
-        
-        // VR编辑器（编辑器专用）
-        TEXT("/Script/VREditor"),
-        TEXT("/Script/ViewportInteraction"),
-        
-        // 服装系统编辑器
-        TEXT("/Script/ClothingSystemEditor"),
-        
-        // 序列录制工具
-        TEXT("/Script/SequenceRecorder"),
-        
-        // 本地化工具
-        TEXT("/Script/Localization"),
-        
-        // 硬件目标和项目生成（编辑器专用）
-        TEXT("/Script/HardwareTargeting"),
-        TEXT("/Script/GameProjectGeneration"),
-        
-        // 源码控制（编辑器专用）
-        TEXT("/Script/SourceControl"),
-        
-        // PIE预览设备（编辑器专用）
-        TEXT("/Script/PIEPreviewDeviceSpecification"),
-        TEXT("/Script/PIEPreviewDeviceProfileSelector"),
-        
-        // 一些不常用的引擎系统
-        TEXT("/Script/PacketHandler"),
-        TEXT("/Script/MeshDescription"),
-        TEXT("/Script/StaticMeshDescription"),
-        TEXT("/Script/PropertyAccess"),
-        TEXT("/Script/MaterialShaderQualitySettings"),
-        
-        // 临时文件和编辑器原生类型
-        TEXT("/Temp/"),
-        TEXT("/Native/EditorStyle"),
-        TEXT("/Native/ToolMenus"),
-        TEXT("/Native/UnrealEd"),
-    };
-    
-    UE_LOG(LogTemp, Log, TEXT("[CONFIG] Using default excluded paths: %d entries"), OutExcludedPaths.Num());
-    
-    // 打印前几个默认路径用于调试
-    for (int32 i = 0; i < FMath::Min(3, OutExcludedPaths.Num()); i++)
-    {
-        UE_LOG(LogTemp, Log, TEXT("[CONFIG] Default path [%d]: %s"), i, *OutExcludedPaths[i]);
     }
 }
 
@@ -1533,29 +1441,47 @@ void ULuaExportManager::UpdateExportCacheByHash(const FString& AssetPath, const 
 
 bool ULuaExportManager::ShouldExcludeFromExport(const FString& AssetPath) const
 {
-    // 从JSON文件加载排除路径列表
-    static TArray<FString> ExcludedPaths;
+    // 从JSON文件加载排除路径列表，使用TSet提升查找性能
+    static TSet<FString> ExcludedPaths;
     static bool bPathsLoaded = false;
     
     if (!bPathsLoaded)
     {
-        LoadExcludedPathsFromFile(ExcludedPaths);
+        TArray<FString> TempExcludedPaths;
+        LoadExcludedPathsFromFile(TempExcludedPaths);
+        ExcludedPaths = TSet<FString>(TempExcludedPaths);
         bPathsLoaded = true;
         UE_LOG(LogTemp, Log, TEXT("[EXCLUDE] Loaded %d excluded paths for filtering"), ExcludedPaths.Num());
         
         // 打印前几个排除路径用于调试
-        for (int32 i = 0; i < FMath::Min(5, ExcludedPaths.Num()); i++)
+        int32 Count = 0;
+        for (const FString& Path : ExcludedPaths)
         {
-            UE_LOG(LogTemp, Log, TEXT("[EXCLUDE] Sample excluded path [%d]: %s"), i, *ExcludedPaths[i]);
+            if (Count >= 5) break;
+            UE_LOG(LogTemp, Log, TEXT("[EXCLUDE] Sample excluded path [%d]: %s"), Count, *Path);
+            Count++;
         }
     }
     
-    // 检查是否匹配任何排除路径
-    for (const FString& ExcludedPath : ExcludedPaths)
+    // 提取路径的所有层级进行匹配
+    // 例如：/a/b/c/d.txt -> 检查 /a, /a/b, /a/b/c
+    FString CurrentPath = AssetPath;
+    
+    // 首先检查完整路径
+    if (ExcludedPaths.Contains(CurrentPath))
     {
-        if (AssetPath.StartsWith(ExcludedPath))
+        UE_LOG(LogTemp, Verbose, TEXT("[EXCLUDE] Path excluded (exact match): %s"), *AssetPath);
+        return true;
+    }
+    
+    // 然后检查各个父级路径
+    int32 LastSlashIndex;
+    while (CurrentPath.FindLastChar('/', LastSlashIndex) && LastSlashIndex > 0)
+    {
+        CurrentPath = CurrentPath.Left(LastSlashIndex);
+        if (ExcludedPaths.Contains(CurrentPath))
         {
-            UE_LOG(LogTemp, Verbose, TEXT("[EXCLUDE] Path excluded: %s (matched: %s)"), *AssetPath, *ExcludedPath);
+            UE_LOG(LogTemp, Verbose, TEXT("[EXCLUDE] Path excluded (parent match): %s (matched: %s)"), *AssetPath, *CurrentPath);
             return true;
         }
     }

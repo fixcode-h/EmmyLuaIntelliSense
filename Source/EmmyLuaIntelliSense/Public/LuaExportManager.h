@@ -41,6 +41,9 @@ public:
     /** 检查是否有待导出的变更 */
     bool HasPendingChanges() const;
 
+    /** 获取待导出文件数量 */
+    int32 GetPendingFilesCount() const;
+
     /** 清除待导出的变更记录 */
     void ClearPendingChanges();
 
@@ -95,10 +98,10 @@ private:
     void CollectNativeTypes(TArray<const UField*>& Types);
 
     /** 判断是否为蓝图资源 */
-    bool IsBlueprint(const FAssetData& AssetData) const;
+    static bool IsBlueprint(const FAssetData& AssetData);
 
-    /** 判断是否应该导出 */
-    bool ShouldExport(const FAssetData& AssetData, bool bLoad = false) const;
+    /** 判断蓝图是否应该导出 */
+    bool ShouldExportBlueprint(const FAssetData& AssetData, bool bLoad = false) const;
 
     /** 保存文件 */
     void SaveFile(const FString& ModuleName, const FString& FileName, const FString& Content);
@@ -168,7 +171,4 @@ private:
 
     /** 从JSON文件加载排除路径列表 */
     void LoadExcludedPathsFromFile(TArray<FString>& OutExcludedPaths) const;
-
-    /** 加载默认的排除路径列表 */
-    void LoadDefaultExcludedPaths(TArray<FString>& OutExcludedPaths) const;
 };

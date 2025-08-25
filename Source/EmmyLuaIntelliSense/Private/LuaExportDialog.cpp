@@ -19,6 +19,22 @@ void FLuaExportDialog::ShowExportConfirmation()
     FLuaExportNotificationManager::ShowExportConfirmation(Message);
 }
 
+void FLuaExportDialog::ShowExportConfirmation(int32 FileCount)
+{
+    FString Message;
+    if (FileCount > 0)
+    {
+        Message = FString::Printf(TEXT("检测到 %d 个文件需要导出，是否要导出Lua IntelliSense文件以获得更好的代码提示？"), FileCount);
+    }
+    else
+    {
+        Message = TEXT("是否要导出Lua IntelliSense文件以获得更好的代码提示？");
+    }
+    
+    // 使用非阻塞通知替代阻塞对话框
+    FLuaExportNotificationManager::ShowExportConfirmation(Message);
+}
+
 // FLuaExportNotificationManager Implementation
 
 TSharedPtr<SNotificationItem> FLuaExportNotificationManager::ShowExportConfirmation(const FString& Message)

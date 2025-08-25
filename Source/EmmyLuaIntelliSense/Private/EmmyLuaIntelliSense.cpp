@@ -117,10 +117,11 @@ void FEmmyLuaIntelliSenseModule::ShowExportDialogIfNeeded()
 	ULuaExportManager* ExportManager = ULuaExportManager::Get();
 	if (ExportManager && ExportManager->HasPendingChanges())
 	{
-		UE_LOG(LogTemp, Log, TEXT("Showing Lua export dialog due to pending changes..."));
+		int32 FileCount = ExportManager->GetPendingFilesCount();
+		UE_LOG(LogTemp, Log, TEXT("Showing Lua export dialog due to pending changes (%d files)..."), FileCount);
 		
-		// 显示简化的导出确认对话框
-		FLuaExportDialog::ShowExportConfirmation();
+		// 显示简化的导出确认对话框，包含文件数量信息
+		FLuaExportDialog::ShowExportConfirmation(FileCount);
 	}
 	else
 	{
