@@ -181,30 +181,30 @@ FString FEmmyLuaCodeGenerator::GenerateEnum(const UEnum* Enum)
         return TEXT("");
     }
     
-    // 生成枚举声明
-    Result += FString::Printf(TEXT("---@enum %s\n"), *EnumName);
-    
     // 添加枚举注释
     FString EnumComment = Enum->GetMetaData(TEXT("Comment"));
     if (!EnumComment.IsEmpty())
     {
-        Result += FString::Printf(TEXT("---@comment %s\n"), *EscapeComments(EnumComment));
+        Result += FString::Printf(TEXT("---%s\n"), *EscapeComments(EnumComment));
     }
     
-    Result += FString::Printf(TEXT("local %s = {\n"), *EnumName);
+    // 生成枚举类声明
+    Result += FString::Printf(TEXT("---@class %s\n"), *EnumName);
     
-    // 生成枚举值
+    // 生成枚举值字段声明
     for (int32 i = 0; i < Enum->NumEnums() - 1; ++i) // -1 to skip _MAX
     {
         FString EnumValueName = Enum->GetNameStringByIndex(i);
         int64 EnumValue = Enum->GetValueByIndex(i);
         
-        Result += FString::Printf(TEXT("    %s = %lld,\n"), 
-            *EscapeSymbolName(EnumValueName), EnumValue);
+        Result += FString::Printf(TEXT("---@field public %s integer\n"), 
+            *EscapeSymbolName(EnumValueName));
     }
     
-    Result += TEXT("}\n");
-    Result += FString::Printf(TEXT("\nreturn %s\n"), *EnumName);
+    // 生成枚举表定义
+    Result += FString::Printf(TEXT("local %s = {}\n\n"), *EnumName);
+    
+    Result += FString::Printf(TEXT("return %s\n"), *EnumName);
     
     return Result;
 }
