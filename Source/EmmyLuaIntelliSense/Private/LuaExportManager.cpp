@@ -396,7 +396,6 @@ void ULuaExportManager::ExportBlueprint(const UBlueprint* Blueprint)
 
 	// 获取蓝图路径用于日志输出
 	FString BlueprintPath = Blueprint->GetPathName();
-	UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("[EXPORT] Exporting Blueprint: %s"), *BlueprintPath);
 
 	FString LuaCode = FEmmyLuaCodeGenerator::GenerateBlueprint(Blueprint);
 	if (!LuaCode.IsEmpty())
