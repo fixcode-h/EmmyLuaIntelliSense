@@ -66,33 +66,52 @@ FString FEmmyLuaCodeGenerator::GenerateClass(const UClass* Class)
         return TEXT("");
     }
     
-    // 生成类声明
+    // 生成类声明，注释放在同一行
+    FString ClassComment = Class->GetMetaData(TEXT("Comment"));
     const UClass* SuperClass = Class->GetSuperClass();
+    
     if (SuperClass && IsValid(SuperClass))
     {
         FString SuperClassName = GetTypeName(SuperClass);
         if (!SuperClassName.IsEmpty() && SuperClassName != TEXT("Error") && SuperClassName != TEXT("Invalid"))
         {
-            Result += FString::Printf(TEXT("---@class %s : %s\n"), 
-                *ClassName, 
-                *SuperClassName);
+            if (!ClassComment.IsEmpty())
+            {
+                Result += FString::Printf(TEXT("---@class %s : %s @%s\n"), 
+                    *ClassName, 
+                    *SuperClassName,
+                    *EscapeComments(ClassComment));
+            }
+            else
+            {
+                Result += FString::Printf(TEXT("---@class %s : %s\n"), 
+                    *ClassName, 
+                    *SuperClassName);
+            }
         }
         else
         {
             UE_LOG(LogEmmyLuaIntelliSense, Warning, TEXT("GenerateClass: Invalid super class name for %s"), *Class->GetName());
-            Result += FString::Printf(TEXT("---@class %s\n"), *ClassName);
+            if (!ClassComment.IsEmpty())
+            {
+                Result += FString::Printf(TEXT("---@class %s @%s\n"), *ClassName, *EscapeComments(ClassComment));
+            }
+            else
+            {
+                Result += FString::Printf(TEXT("---@class %s\n"), *ClassName);
+            }
         }
     }
     else
     {
-        Result += FString::Printf(TEXT("---@class %s\n"), *ClassName);
-    }
-    
-    // 添加类注释
-    FString ClassComment = Class->GetMetaData(TEXT("Comment"));
-    if (!ClassComment.IsEmpty())
-    {
-        Result += FString::Printf(TEXT("---@comment %s\n"), *EscapeComments(ClassComment));
+        if (!ClassComment.IsEmpty())
+        {
+            Result += FString::Printf(TEXT("---@class %s @%s\n"), *ClassName, *EscapeComments(ClassComment));
+        }
+        else
+        {
+            Result += FString::Printf(TEXT("---@class %s\n"), *ClassName);
+        }
     }
     
     Result += FString::Printf(TEXT("local %s = {}\n\n"), *ClassName);
@@ -130,14 +149,15 @@ FString FEmmyLuaCodeGenerator::GenerateStruct(const UScriptStruct* Struct)
         return TEXT("");
     }
     
-    // 生成结构体声明
-    Result += FString::Printf(TEXT("---@class %s\n"), *StructName);
-    
-    // 添加结构体注释
+    // 生成结构体声明，注释放在同一行
     FString StructComment = Struct->GetMetaData(TEXT("Comment"));
     if (!StructComment.IsEmpty())
     {
-        Result += FString::Printf(TEXT("---@comment %s\n"), *EscapeComments(StructComment));
+        Result += FString::Printf(TEXT("---@class %s @%s\n"), *StructName, *EscapeComments(StructComment));
+    }
+    else
+    {
+        Result += FString::Printf(TEXT("---@class %s\n"), *StructName);
     }
     
     Result += FString::Printf(TEXT("local %s = {}\n\n"), *StructName);
@@ -237,7 +257,7 @@ FString FEmmyLuaCodeGenerator::GenerateUETypes(const TArray<const UField*>& Type
 
 FString FEmmyLuaCodeGenerator::GenerateUETable(const TArray<const UField*>& Types)
 {
-    FString Content = TEXT("---@class UE\r\nUE = {");
+    FString Content = TEXT("---@class UE\r\n");
     
     for (const UField* Type : Types)
     {
@@ -245,11 +265,10 @@ FString FEmmyLuaCodeGenerator::GenerateUETable(const TArray<const UField*>& Type
             continue;
             
         const FString Name = GetTypeName(Type);
-        Content += FString::Printf(TEXT("\r\n    ---@type %s\r\n"), *Name);
-        Content += FString::Printf(TEXT("    %s = nil,\r\n"), *Name);
+        Content += FString::Printf(TEXT("---@field %s %s\r\n"), *Name, *Name);
     }
     
-    Content += TEXT("}\r\n");
+    Content += TEXT("\r\n");
     return Content;
 }
 
@@ -297,15 +316,16 @@ void FEmmyLuaCodeGenerator::GenerateProperty(const FProperty* Property, FString&
     FString PropertyType = GetPropertyType(Property);
     FString PropertyName = EscapeSymbolName(Property->GetName());
     
-    // 添加属性注释
+    // 生成属性声明，注释放在同一行
     FString PropertyComment = Property->GetMetaData(TEXT("Comment"));
     if (!PropertyComment.IsEmpty())
     {
-        Code += FString::Printf(TEXT("---@comment %s\n"), *EscapeComments(PropertyComment));
+        Code += FString::Printf(TEXT("---@field %s %s @%s\n"), *PropertyName, *PropertyType, *EscapeComments(PropertyComment));
     }
-    
-    // 生成属性声明
-    Code += FString::Printf(TEXT("---@field %s %s\n"), *PropertyName, *PropertyType);
+    else
+    {
+        Code += FString::Printf(TEXT("---@field %s %s\n"), *PropertyName, *PropertyType);
+    }
 }
 
 void FEmmyLuaCodeGenerator::GenerateFunction(const UFunction* Function, FString& Code)
@@ -321,7 +341,7 @@ void FEmmyLuaCodeGenerator::GenerateFunction(const UFunction* Function, FString&
     FString FunctionComment = Function->GetMetaData(TEXT("Comment"));
     if (!FunctionComment.IsEmpty())
     {
-        Code += FString::Printf(TEXT("---@comment %s\n"), *EscapeComments(FunctionComment));
+        Code += FString::Printf(TEXT("---%s\n"), *EscapeComments(FunctionComment));
     }
     
     // 生成参数
