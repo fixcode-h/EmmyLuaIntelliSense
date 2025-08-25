@@ -237,7 +237,7 @@ FString FEmmyLuaCodeGenerator::GenerateUETypes(const TArray<const UField*>& Type
 
 FString FEmmyLuaCodeGenerator::GenerateUETable(const TArray<const UField*>& Types)
 {
-    FString Content = TEXT("UE = {");
+    FString Content = TEXT("---@class UE\r\nUE = {");
     
     for (const UField* Type : Types)
     {

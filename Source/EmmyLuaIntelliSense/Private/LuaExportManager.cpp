@@ -484,7 +484,7 @@ void ULuaExportManager::ExportUETypes(const TArray<const UField*>& Types)
     }
     
     // 生成UE4.lua文件（UE4 = UE的别名）
-    FString UE4LuaCode = TEXT("\r\nUE4 = UE\r\n");
+    FString UE4LuaCode = TEXT("---@type UE\r\nUE4 = UE\r\n");
     SaveFile(TEXT(""), TEXT("UE4"), UE4LuaCode);
     
     // 生成UnLua.lua文件（UnLua特定的类和函数定义）
