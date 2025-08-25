@@ -604,8 +604,8 @@ bool FEmmyLuaCodeGenerator::ShouldSkipProperty(const FProperty* Property)
         return true;
     }
     
-    // 跳过私有属性
-    if (Property->HasAnyPropertyFlags(CPF_NativeAccessSpecifierPrivate))
+    // 跳过非public属性（私有和受保护属性）
+    if (Property->HasAnyPropertyFlags(CPF_NativeAccessSpecifierPrivate | CPF_NativeAccessSpecifierProtected))
     {
         return true;
     }
