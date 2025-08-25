@@ -1,6 +1,7 @@
 // Copyright Epic Games, Inc. All Rights Reserved.
 
 #include "LuaCodeGenerator.h"
+#include "EmmyLuaIntelliSense.h"
 #include "Engine/Blueprint.h"
 #include "Engine/BlueprintGeneratedClass.h"
 #include "Engine/UserDefinedStruct.h"
@@ -47,13 +48,13 @@ FString FEmmyLuaCodeGenerator::GenerateClass(const UClass* Class)
 {
     if (!Class)
     {
-        UE_LOG(LogTemp, Warning, TEXT("GenerateClass: Class is null"));
+        UE_LOG(LogEmmyLuaIntelliSense, Warning, TEXT("GenerateClass: Class is null"));
         return TEXT("");
     }
     
     if (!IsValid(Class))
     {
-        UE_LOG(LogTemp, Warning, TEXT("GenerateClass: Class is not valid: %s"), Class ? *Class->GetName() : TEXT("null"));
+        UE_LOG(LogEmmyLuaIntelliSense, Warning, TEXT("GenerateClass: Class is not valid: %s"), Class ? *Class->GetName() : TEXT("null"));
         return TEXT("");
     }
 
@@ -61,7 +62,7 @@ FString FEmmyLuaCodeGenerator::GenerateClass(const UClass* Class)
     FString ClassName = GetTypeName(Class);
     if (ClassName.IsEmpty() || ClassName == TEXT("Error") || ClassName == TEXT("Invalid"))
     {
-        UE_LOG(LogTemp, Warning, TEXT("GenerateClass: Invalid class name for class: %s"), *Class->GetName());
+        UE_LOG(LogEmmyLuaIntelliSense, Warning, TEXT("GenerateClass: Invalid class name for class: %s"), *Class->GetName());
         return TEXT("");
     }
     
@@ -78,7 +79,7 @@ FString FEmmyLuaCodeGenerator::GenerateClass(const UClass* Class)
         }
         else
         {
-            UE_LOG(LogTemp, Warning, TEXT("GenerateClass: Invalid super class name for %s"), *Class->GetName());
+            UE_LOG(LogEmmyLuaIntelliSense, Warning, TEXT("GenerateClass: Invalid super class name for %s"), *Class->GetName());
             Result += FString::Printf(TEXT("---@class %s\n"), *ClassName);
         }
     }
@@ -111,13 +112,13 @@ FString FEmmyLuaCodeGenerator::GenerateStruct(const UScriptStruct* Struct)
 {
     if (!Struct)
     {
-        UE_LOG(LogTemp, Warning, TEXT("GenerateStruct: Struct is null"));
+        UE_LOG(LogEmmyLuaIntelliSense, Warning, TEXT("GenerateStruct: Struct is null"));
         return TEXT("");
     }
     
     if (!IsValid(Struct))
     {
-        UE_LOG(LogTemp, Warning, TEXT("GenerateStruct: Struct is not valid: %s"), Struct ? *Struct->GetName() : TEXT("null"));
+        UE_LOG(LogEmmyLuaIntelliSense, Warning, TEXT("GenerateStruct: Struct is not valid: %s"), Struct ? *Struct->GetName() : TEXT("null"));
         return TEXT("");
     }
 
@@ -125,7 +126,7 @@ FString FEmmyLuaCodeGenerator::GenerateStruct(const UScriptStruct* Struct)
     FString StructName = GetTypeName(Struct);
     if (StructName.IsEmpty() || StructName == TEXT("Error") || StructName == TEXT("Invalid"))
     {
-        UE_LOG(LogTemp, Warning, TEXT("GenerateStruct: Invalid struct name for struct: %s"), *Struct->GetName());
+        UE_LOG(LogEmmyLuaIntelliSense, Warning, TEXT("GenerateStruct: Invalid struct name for struct: %s"), *Struct->GetName());
         return TEXT("");
     }
     
@@ -162,13 +163,13 @@ FString FEmmyLuaCodeGenerator::GenerateEnum(const UEnum* Enum)
 {
     if (!Enum)
     {
-        UE_LOG(LogTemp, Warning, TEXT("GenerateEnum: Enum is null"));
+        UE_LOG(LogEmmyLuaIntelliSense, Warning, TEXT("GenerateEnum: Enum is null"));
         return TEXT("");
     }
     
     if (!IsValid(Enum))
     {
-        UE_LOG(LogTemp, Warning, TEXT("GenerateEnum: Enum is not valid: %s"), Enum ? *Enum->GetName() : TEXT("null"));
+        UE_LOG(LogEmmyLuaIntelliSense, Warning, TEXT("GenerateEnum: Enum is not valid: %s"), Enum ? *Enum->GetName() : TEXT("null"));
         return TEXT("");
     }
 
@@ -176,7 +177,7 @@ FString FEmmyLuaCodeGenerator::GenerateEnum(const UEnum* Enum)
     FString EnumName = GetTypeName(Enum);
     if (EnumName.IsEmpty() || EnumName == TEXT("Error") || EnumName == TEXT("Invalid"))
     {
-        UE_LOG(LogTemp, Warning, TEXT("GenerateEnum: Invalid enum name for enum: %s"), *Enum->GetName());
+        UE_LOG(LogEmmyLuaIntelliSense, Warning, TEXT("GenerateEnum: Invalid enum name for enum: %s"), *Enum->GetName());
         return TEXT("");
     }
     
@@ -416,14 +417,14 @@ FString FEmmyLuaCodeGenerator::GetTypeName(const UField* Field)
 {
     if (!Field)
     {
-        UE_LOG(LogTemp, Warning, TEXT("GetTypeName: Field is null"));
+        UE_LOG(LogEmmyLuaIntelliSense, Warning, TEXT("GetTypeName: Field is null"));
         return TEXT("Unknown");
     }
     
     // 检查Field是否有效
     if (!IsValid(Field))
     {
-        UE_LOG(LogTemp, Warning, TEXT("GetTypeName: Field is not valid"));
+        UE_LOG(LogEmmyLuaIntelliSense, Warning, TEXT("GetTypeName: Field is not valid"));
         return TEXT("Invalid");
     }
     
@@ -448,7 +449,7 @@ FString FEmmyLuaCodeGenerator::GetTypeName(const UField* Field)
     }
     catch (...)
     {
-        UE_LOG(LogTemp, Error, TEXT("GetTypeName: Exception occurred while processing field"));
+        UE_LOG(LogEmmyLuaIntelliSense, Error, TEXT("GetTypeName: Exception occurred while processing field"));
         return TEXT("Error");
     }
 }
@@ -518,7 +519,7 @@ bool FEmmyLuaCodeGenerator::ShouldSkipType(const UField* Field)
     }
     catch (...)
     {
-        UE_LOG(LogTemp, Warning, TEXT("ShouldSkipType: Exception getting field name"));
+        UE_LOG(LogEmmyLuaIntelliSense, Warning, TEXT("ShouldSkipType: Exception getting field name"));
         return true;
     }
     
@@ -538,7 +539,7 @@ bool FEmmyLuaCodeGenerator::ShouldSkipType(const UField* Field)
     }
     catch (...)
     {
-        UE_LOG(LogTemp, Warning, TEXT("ShouldSkipType: Exception checking deprecated metadata for %s"), *FieldName);
+        UE_LOG(LogEmmyLuaIntelliSense, Warning, TEXT("ShouldSkipType: Exception checking deprecated metadata for %s"), *FieldName);
     }
     
     // 跳过编辑器专用类型
@@ -560,6 +561,7 @@ bool FEmmyLuaCodeGenerator::ShouldSkipProperty(const FProperty* Property)
 {
     if (!Property)
     {
+        UE_LOG(LogEmmyLuaIntelliSense, Warning, TEXT("ShouldSkipProperty: Property is null"));
         return true;
     }
     
@@ -588,6 +590,7 @@ bool FEmmyLuaCodeGenerator::ShouldSkipFunction(const UFunction* Function)
 {
     if (!Function)
     {
+        UE_LOG(LogEmmyLuaIntelliSense, Warning, TEXT("ShouldSkipFunction: Function is null"));
         return true;
     }
     
@@ -626,7 +629,12 @@ bool FEmmyLuaCodeGenerator::ShouldSkipFunction(const UFunction* Function)
 
 bool FEmmyLuaCodeGenerator::IsValidFunction(const UFunction* Function)
 {
-    return Function && !ShouldSkipFunction(Function);
+    if (!Function)
+    {
+        UE_LOG(LogEmmyLuaIntelliSense, Warning, TEXT("IsValidFunction: Function is null"));
+        return false;
+    }
+    return !ShouldSkipFunction(Function);
 }
 
 bool FEmmyLuaCodeGenerator::IsValidFunctionName(const FString& Name)

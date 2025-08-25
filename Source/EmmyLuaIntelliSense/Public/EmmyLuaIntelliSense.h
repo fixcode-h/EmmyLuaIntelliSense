@@ -5,6 +5,9 @@
 #include "CoreMinimal.h"
 #include "Modules/ModuleManager.h"
 
+// 声明插件专属的日志类别
+DECLARE_LOG_CATEGORY_EXTERN(LogEmmyLuaIntelliSense, Log, All);
+
 class FEmmyLuaIntelliSenseModule : public IModuleInterface
 {
 public:

@@ -117,11 +117,9 @@
     "/Engine/Sequencer",
     "/Engine/Tutorial",
     "/Game/Tutorials",
-    "/Paper2D/Tutorial/Paper2D",
+    "/Paper2D/Tutorial",
     "/ChaosNiagara",
     "/Niagara/Blueprints",
-    "/RuntimeTests",
-    "/UnLuaTestSuite",
     "/DatasmithContent"
   ]
 }

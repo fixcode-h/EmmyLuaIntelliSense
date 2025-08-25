@@ -2,6 +2,7 @@
 
 #include "LuaExportDialog.h"
 #include "LuaExportManager.h"
+#include "EmmyLuaIntelliSense.h"
 #include "Misc/MessageDialog.h"
 #include "Framework/Notifications/NotificationManager.h"
 #include "Widgets/Notifications/SNotificationList.h"
@@ -139,7 +140,7 @@ void FLuaExportNotificationManager::CompleteProgressNotification(TSharedPtr<SNot
 
 void FLuaExportNotificationManager::OnExportConfirmed()
 {
-    UE_LOG(LogTemp, Log, TEXT("User confirmed Lua export via notification."));
+    UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("User confirmed Lua export via notification."));
     
     // 关闭确认通知
     if (CurrentConfirmationNotification.IsValid())
@@ -157,7 +158,7 @@ void FLuaExportNotificationManager::OnExportConfirmed()
 
 void FLuaExportNotificationManager::OnExportSkipped()
 {
-    UE_LOG(LogTemp, Log, TEXT("User skipped Lua export via notification."));
+    UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("User skipped Lua export via notification."));
     
     // 关闭确认通知
     if (CurrentConfirmationNotification.IsValid())

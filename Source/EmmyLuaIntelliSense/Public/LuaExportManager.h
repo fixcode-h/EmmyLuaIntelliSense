@@ -85,6 +85,8 @@ private:
     void OnAssetRenamed(const FAssetData& AssetData, const FString& OldPath);
     void OnAssetUpdated(const FAssetData& AssetData);
 
+    void AddToPendingBlueprints(const FAssetData& AssetData);
+    
     /** 导出单个蓝图 */
     void ExportBlueprint(const UBlueprint* Blueprint);
 

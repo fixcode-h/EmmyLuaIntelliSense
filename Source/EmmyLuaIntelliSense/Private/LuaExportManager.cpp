@@ -15,6 +15,7 @@
 #include "Framework/Notifications/NotificationManager.h"
 #include "Widgets/Notifications/SNotificationList.h"
 #include "DirectoryWatcherModule.h"
+#include "EmmyLuaIntelliSense.h"
 #include "IDirectoryWatcher.h"
 #include "Engine/Engine.h"
 #include "Engine/World.h"
@@ -52,11 +53,11 @@ void ULuaExportManager::Initialize(FSubsystemCollectionBase& Collection)
 {
     Super::Initialize(Collection);
     
-    UE_LOG(LogTemp, Warning, TEXT("=== ULuaExportManager::Initialize() called ==="));
+    UE_LOG(LogEmmyLuaIntelliSense, Warning, TEXT("=== ULuaExportManager::Initialize() called ==="));
     
     if (bInitialized)
     {
-        UE_LOG(LogTemp, Warning, TEXT("Already initialized, returning"));
+        UE_LOG(LogEmmyLuaIntelliSense, Warning, TEXT("Already initialized, returning"));
         return;
     }
 
@@ -84,7 +85,7 @@ void ULuaExportManager::Initialize(FSubsystemCollectionBase& Collection)
 
     bInitialized = true;
 
-    UE_LOG(LogTemp, Warning, TEXT("=== LuaExportManager initialized successfully. Output directory: %s ==="), *OutputDir);
+    UE_LOG(LogEmmyLuaIntelliSense, Warning, TEXT("=== LuaExportManager initialized successfully. Output directory: %s ==="), *OutputDir);
 }
 
 void ULuaExportManager::Deinitialize()
@@ -118,18 +119,18 @@ void ULuaExportManager::Deinitialize()
     WatchedDirectories.Empty();
     ExportedFilesCache.Empty();
 
-    UE_LOG(LogTemp, Log, TEXT("LuaExportManager shutdown."));
+    UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("LuaExportManager shutdown."));
 }
 
 void ULuaExportManager::ExportAll()
 {
     if (!bInitialized)
     {
-        UE_LOG(LogTemp, Warning, TEXT("LuaExportManager not initialized."));
+        UE_LOG(LogEmmyLuaIntelliSense, Warning, TEXT("LuaExportManager not initialized."));
         return;
     }
 
-    UE_LOG(LogTemp, Log, TEXT("Starting full Lua export..."));
+    UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("Starting full Lua export..."));
 
     // 收集所有蓝图
     FAssetRegistryModule& AssetRegistryModule = FModuleManager::LoadModuleChecked<FAssetRegistryModule>(TEXT("AssetRegistry"));
@@ -157,7 +158,7 @@ void ULuaExportManager::ExportAll()
         {
             if (SlowTask.ShouldCancel())
             {
-                UE_LOG(LogTemp, Warning, TEXT("Lua export cancelled by user."));
+                UE_LOG(LogEmmyLuaIntelliSense, Warning, TEXT("Lua export cancelled by user."));
                 return;
             }
             
@@ -177,7 +178,7 @@ void ULuaExportManager::ExportAll()
         {
             if (SlowTask.ShouldCancel())
             {
-                UE_LOG(LogTemp, Warning, TEXT("Lua export cancelled by user."));
+                UE_LOG(LogEmmyLuaIntelliSense, Warning, TEXT("Lua export cancelled by user."));
                 return;
             }
             
@@ -192,13 +193,13 @@ void ULuaExportManager::ExportAll()
         // 显示成功通知
         FLuaExportNotificationManager::ShowExportSuccess(TEXT("Lua IntelliSense文件导出完成！"));
 
-        UE_LOG(LogTemp, Log, TEXT("Full Lua export completed. Exported %d items."), TotalCount);
+        UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("Full Lua export completed. Exported %d items."), TotalCount);
     }
     catch (const std::exception& e)
     {
         FString ErrorMsg = FString::Printf(TEXT("导出失败: %s"), UTF8_TO_TCHAR(e.what()));
         FLuaExportNotificationManager::ShowExportFailure(ErrorMsg);
-        UE_LOG(LogTemp, Error, TEXT("Full Lua export failed: %s"), UTF8_TO_TCHAR(e.what()));
+        UE_LOG(LogEmmyLuaIntelliSense, Error, TEXT("Full Lua export failed: %s"), UTF8_TO_TCHAR(e.what()));
     }
 }
 
@@ -206,17 +207,17 @@ void ULuaExportManager::ExportIncremental()
 {
     if (!bInitialized)
     {
-        UE_LOG(LogTemp, Warning, TEXT("LuaExportManager not initialized."));
+        UE_LOG(LogEmmyLuaIntelliSense, Warning, TEXT("LuaExportManager not initialized."));
         return;
     }
 
     if (!HasPendingChanges())
     {
-        UE_LOG(LogTemp, Log, TEXT("No pending changes for incremental export."));
+        UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("No pending changes for incremental export."));
         return;
     }
 
-    UE_LOG(LogTemp, Log, TEXT("Starting incremental Lua export..."));
+    UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("Starting incremental Lua export..."));
 
     int32 ExportedCount = 0;
     
@@ -236,7 +237,7 @@ void ULuaExportManager::ExportIncremental()
     {
         if (SlowTask.ShouldCancel())
         {
-            UE_LOG(LogTemp, Warning, TEXT("Incremental export cancelled by user."));
+            UE_LOG(LogEmmyLuaIntelliSense, Warning, TEXT("Incremental export cancelled by user."));
             return;
         }
         
@@ -258,7 +259,7 @@ void ULuaExportManager::ExportIncremental()
     {
         if (SlowTask.ShouldCancel())
         {
-            UE_LOG(LogTemp, Warning, TEXT("Incremental export cancelled by user."));
+            UE_LOG(LogEmmyLuaIntelliSense, Warning, TEXT("Incremental export cancelled by user."));
             return;
         }
         
@@ -289,7 +290,7 @@ void ULuaExportManager::ExportIncremental()
     {
         if (SlowTask.ShouldCancel())
         {
-            UE_LOG(LogTemp, Warning, TEXT("Incremental export cancelled by user."));
+            UE_LOG(LogEmmyLuaIntelliSense, Warning, TEXT("Incremental export cancelled by user."));
             return;
         }
         
@@ -314,7 +315,7 @@ void ULuaExportManager::ExportIncremental()
     FString Message = FString::Printf(TEXT("增量导出完成，共导出 %d 项"), ExportedCount);
     FLuaExportNotificationManager::ShowExportSuccess(Message);
 
-    UE_LOG(LogTemp, Log, TEXT("Incremental Lua export completed. Exported %d items."), ExportedCount);
+    UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("Incremental Lua export completed. Exported %d items."), ExportedCount);
 }
 
 bool ULuaExportManager::HasPendingChanges() const
@@ -341,10 +342,7 @@ void ULuaExportManager::ClearPendingChanges()
 
 void ULuaExportManager::OnAssetAdded(const FAssetData& AssetData)
 {
-    if (ShouldExportBlueprint(AssetData))
-    {
-        PendingBlueprints.Add(AssetData.ObjectPath.ToString());
-    }
+    AddToPendingBlueprints(AssetData);
 }
 
 void ULuaExportManager::OnAssetRemoved(const FAssetData& AssetData)
@@ -366,19 +364,22 @@ void ULuaExportManager::OnAssetRenamed(const FAssetData& AssetData, const FStrin
         DeleteFile(TEXT("/Game"), OldFileName);
         
         // 添加新文件到待导出列表
-        if (ShouldExportBlueprint(AssetData))
-        {
-            PendingBlueprints.Add(AssetData.ObjectPath.ToString());
-        }
+        AddToPendingBlueprints(AssetData);
     }
 }
 
 void ULuaExportManager::OnAssetUpdated(const FAssetData& AssetData)
 {
-    if (ShouldExportBlueprint(AssetData))
+    AddToPendingBlueprints(AssetData);
+}
+
+void ULuaExportManager::AddToPendingBlueprints(const FAssetData& AssetData)
+{
+    if (!ShouldExportBlueprint(AssetData))
     {
-        PendingBlueprints.Add(AssetData.ObjectPath.ToString());
+        return;
     }
+    PendingBlueprints.Add(AssetData.ObjectPath.ToString());
 }
 
 void ULuaExportManager::ExportBlueprint(const UBlueprint* Blueprint)
@@ -390,7 +391,7 @@ void ULuaExportManager::ExportBlueprint(const UBlueprint* Blueprint)
 
 	// 获取蓝图路径用于日志输出
 	FString BlueprintPath = Blueprint->GetPathName();
-	UE_LOG(LogTemp, Log, TEXT("[EXPORT] Exporting Blueprint: %s"), *BlueprintPath);
+	UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("[EXPORT] Exporting Blueprint: %s"), *BlueprintPath);
 
 	FString LuaCode = FEmmyLuaCodeGenerator::GenerateBlueprint(Blueprint);
 	if (!LuaCode.IsEmpty())
@@ -401,11 +402,11 @@ void ULuaExportManager::ExportBlueprint(const UBlueprint* Blueprint)
 			FileName.LeftChopInline(2);
 		}
 		SaveFile(TEXT("/Game"), FileName, LuaCode);
-		UE_LOG(LogTemp, Log, TEXT("[EXPORT] Blueprint exported successfully: %s -> %s.lua"), *BlueprintPath, *FileName);
+		UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("[EXPORT] Blueprint exported successfully: %s -> %s.lua"), *BlueprintPath, *FileName);
 	}
 	else
 	{
-		UE_LOG(LogTemp, Warning, TEXT("[EXPORT] Failed to generate Lua code for Blueprint: %s"), *BlueprintPath);
+		UE_LOG(LogEmmyLuaIntelliSense, Warning, TEXT("[EXPORT] Failed to generate Lua code for Blueprint: %s"), *BlueprintPath);
 	}
 }
 
@@ -419,7 +420,7 @@ void ULuaExportManager::ExportNativeType(const UField* Field)
 
     // 生成原生类型路径用于日志输出
     FString NativeTypePath = FString::Printf(TEXT("/Native/%s"), *FieldName);
-    UE_LOG(LogTemp, Log, TEXT("[EXPORT] Exporting Native Type: %s (%s)"), *NativeTypePath, *Field->GetName());
+    UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("[EXPORT] Exporting Native Type: %s (%s)"), *NativeTypePath, *Field->GetName());
 
     FString LuaCode;
     if (const UClass* Class = Cast<UClass>(Field))
@@ -453,19 +454,19 @@ void ULuaExportManager::ExportNativeType(const UField* Field)
         if (!FileName.IsEmpty() && FileName != TEXT("Error") && FileName != TEXT("Invalid"))
         {
             SaveFile(ModuleName, FileName, LuaCode);
-            UE_LOG(LogTemp, Log, TEXT("[EXPORT] Native Type exported successfully: %s -> %s/%s.lua"), *NativeTypePath, *ModuleName, *FileName);
+            UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("[EXPORT] Native Type exported successfully: %s -> %s/%s.lua"), *NativeTypePath, *ModuleName, *FileName);
             
             // 更新原生类型的导出缓存
             UpdateExportCache(NativeTypePath, FDateTime::Now());
         }
         else
         {
-            UE_LOG(LogTemp, Warning, TEXT("[EXPORT] Invalid filename for Native Type: %s (%s)"), *NativeTypePath, *Field->GetName());
+            UE_LOG(LogEmmyLuaIntelliSense, Warning, TEXT("[EXPORT] Invalid filename for Native Type: %s (%s)"), *NativeTypePath, *Field->GetName());
         }
     }
     else
     {
-        UE_LOG(LogTemp, Warning, TEXT("[EXPORT] Failed to generate Lua code for Native Type: %s (%s)"), *NativeTypePath, *Field->GetName());
+        UE_LOG(LogEmmyLuaIntelliSense, Warning, TEXT("[EXPORT] Failed to generate Lua code for Native Type: %s (%s)"), *NativeTypePath, *Field->GetName());
     }
 }
 
@@ -545,7 +546,7 @@ void ULuaExportManager::CollectNativeTypes(TArray<const UField*>& Types)
         Types.Add(Enum);
     }
     
-    UE_LOG(LogTemp, Log, TEXT("CollectNativeTypes: Collected %d valid types"), Types.Num());
+    UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("CollectNativeTypes: Collected %d valid types"), Types.Num());
 }
 
 bool ULuaExportManager::IsBlueprint(const FAssetData& AssetData)
@@ -564,7 +565,7 @@ bool ULuaExportManager::ShouldExportBlueprint(const FAssetData& AssetData, bool 
     FString AssetPath = AssetData.ObjectPath.ToString();
     if (ShouldExcludeFromExport(AssetPath))
     {
-        UE_LOG(LogTemp, Verbose, TEXT("[EXPORT] Blueprint excluded from export: %s"), *AssetPath);
+        UE_LOG(LogEmmyLuaIntelliSense, Verbose, TEXT("[EXPORT] Blueprint excluded from export: %s"), *AssetPath);
         return false;
     }
     
@@ -573,7 +574,7 @@ bool ULuaExportManager::ShouldExportBlueprint(const FAssetData& AssetData, bool 
     if (Settings && !Settings->bExportBlueprintFiles)
     {
         // 如果禁用了蓝图导出，跳过所有蓝图
-        UE_LOG(LogTemp, Log, TEXT("[EXPORT] Blueprint export disabled, skipping: %s"), *AssetPath);
+        UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("[EXPORT] Blueprint export disabled, skipping: %s"), *AssetPath);
         return false;
     }
 
@@ -617,11 +618,11 @@ void ULuaExportManager::SaveFile(const FString& ModuleName, const FString& FileN
 
     if (!FFileHelper::SaveStringToFile(Content, *FilePath, FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM))
     {
-        UE_LOG(LogTemp, Error, TEXT("Failed to save Lua file: %s"), *FilePath);
+        UE_LOG(LogEmmyLuaIntelliSense, Error, TEXT("Failed to save Lua file: %s"), *FilePath);
     }
     else
     {
-        UE_LOG(LogTemp, Verbose, TEXT("Saved Lua file: %s"), *FilePath);
+        UE_LOG(LogEmmyLuaIntelliSense, Verbose, TEXT("Saved Lua file: %s"), *FilePath);
     }
 }
 
@@ -640,11 +641,11 @@ void ULuaExportManager::DeleteFile(const FString& ModuleName, const FString& Fil
     {
         if (PlatformFile.DeleteFile(*FilePath))
         {
-            UE_LOG(LogTemp, Log, TEXT("Deleted Lua file: %s"), *FilePath);
+            UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("Deleted Lua file: %s"), *FilePath);
         }
         else
         {
-            UE_LOG(LogTemp, Error, TEXT("Failed to delete Lua file: %s"), *FilePath);
+            UE_LOG(LogEmmyLuaIntelliSense, Error, TEXT("Failed to delete Lua file: %s"), *FilePath);
         }
     }
 }
@@ -693,7 +694,7 @@ void ULuaExportManager::InitializeFileWatcher()
             AddWatchDirectory(PluginsDir);
         }
 
-        UE_LOG(LogTemp, Log, TEXT("File watcher initialized with %d directories"), WatchedDirectories.Num());
+        UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("File watcher initialized with %d directories"), WatchedDirectories.Num());
     }
 }
 
@@ -724,7 +725,7 @@ void ULuaExportManager::AddWatchDirectory(const FString& Directory)
         if (bSuccess)
         {
             WatchedDirectories.Add(Directory, Handle);
-            UE_LOG(LogTemp, Log, TEXT("Added directory watcher: %s"), *Directory);
+            UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("Added directory watcher: %s"), *Directory);
         }
     }
 }
@@ -747,7 +748,7 @@ void ULuaExportManager::OnDirectoryChanged(const TArray<FFileChangeData>& FileCh
                 continue;
             }
 
-            UE_LOG(LogTemp, Log, TEXT("Detected file change: %s (Action: %d)"), *Change.Filename, (int32)Change.Action);
+            UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("Detected file change: %s (Action: %d)"), *Change.Filename, (int32)Change.Action);
             bHasRelevantChanges = true;
         }
     }
@@ -803,7 +804,7 @@ void ULuaExportManager::CheckNativeTypesChanges()
              }
          }
 
-        UE_LOG(LogTemp, Log, TEXT("Native types changed detected. %d valid types marked for export (out of %d total)."), ValidTypesCount, CurrentNativeTypes.Num());
+        UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("Native types changed detected. %d valid types marked for export (out of %d total)."), ValidTypesCount, CurrentNativeTypes.Num());
     }
 }
 
@@ -819,7 +820,7 @@ void ULuaExportManager::ScanExistingAssets()
     AssetRegistryModule.Get().GetAssets(Filter, BlueprintAssets);
     
     // 添加蓝图到待导出列表（只添加需要重新导出的）
-    UE_LOG(LogTemp, Log, TEXT("[SCAN] Found %d blueprint assets, checking for export..."), BlueprintAssets.Num());
+    UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("[SCAN] Found %d blueprint assets, checking for export..."), BlueprintAssets.Num());
     for (const FAssetData& AssetData : BlueprintAssets)
     {
         if (ShouldExportBlueprint(AssetData))
@@ -830,22 +831,22 @@ void ULuaExportManager::ScanExistingAssets()
               FString AssetFilePath;
               if (FPackageName::TryConvertLongPackageNameToFilename(AssetPath, AssetFilePath, TEXT(".uasset")))
               {
-                  UE_LOG(LogTemp, VeryVerbose, TEXT("[SCAN] Direct file access: %s -> %s"), *AssetPath, *AssetFilePath);
+                  UE_LOG(LogEmmyLuaIntelliSense, VeryVerbose, TEXT("[SCAN] Direct file access: %s -> %s"), *AssetPath, *AssetFilePath);
                   
                   // 使用重载版本的ShouldReexport，直接传入文件路径
                   if (ShouldReexport(AssetPath, AssetFilePath))
                   {
-                      PendingBlueprints.Add(AssetPath);
-                      UE_LOG(LogTemp, Log, TEXT("[SCAN] Added Blueprint to pending list: %s"), *AssetPath);
+                      AddToPendingBlueprints(AssetData);
+                      UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("[SCAN] Added Blueprint to pending list: %s"), *AssetPath);
                   }
                   else
                   {
-                      UE_LOG(LogTemp, Verbose, TEXT("[SCAN] Blueprint up-to-date, skipping: %s"), *AssetPath);
+                      UE_LOG(LogEmmyLuaIntelliSense, Verbose, TEXT("[SCAN] Blueprint up-to-date, skipping: %s"), *AssetPath);
                   }
               }
               else
               {
-                  UE_LOG(LogTemp, Warning, TEXT("[SCAN] Failed to convert package name to file path: %s"), *AssetPath);
+                  UE_LOG(LogEmmyLuaIntelliSense, Warning, TEXT("[SCAN] Failed to convert package name to file path: %s"), *AssetPath);
               }
         }
     }
@@ -855,7 +856,7 @@ void ULuaExportManager::ScanExistingAssets()
     CollectNativeTypes(NativeTypes);
     
     // 添加有效的原生类型到待导出列表（只添加需要重新导出的）
-    UE_LOG(LogTemp, Log, TEXT("[SCAN] Found %d native types, checking for export..."), NativeTypes.Num());
+    UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("[SCAN] Found %d native types, checking for export..."), NativeTypes.Num());
     int32 ValidNativeTypesCount = 0;
     int32 PendingNativeTypesCount = 0;
     for (const UField* Field : NativeTypes)
@@ -871,7 +872,7 @@ void ULuaExportManager::ScanExistingAssets()
             // 检查是否应该排除此路径
             if (ShouldExcludeFromExport(NativeTypePath))
             {
-                UE_LOG(LogTemp, Verbose, TEXT("[SCAN] Excluded Native Type: %s"), *NativeTypePath);
+                UE_LOG(LogEmmyLuaIntelliSense, Verbose, TEXT("[SCAN] Excluded Native Type: %s"), *NativeTypePath);
                 continue;
             }
             
@@ -882,16 +883,16 @@ void ULuaExportManager::ScanExistingAssets()
             {
                 PendingNativeTypes.Add(TWeakObjectPtr<const UField>(Field));
                 PendingNativeTypesCount++;
-                UE_LOG(LogTemp, Log, TEXT("[SCAN] Added Native Type to pending list: %s"), *NativeTypePath);
+                UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("[SCAN] Added Native Type to pending list: %s"), *NativeTypePath);
             }
             else
             {
-                UE_LOG(LogTemp, Verbose, TEXT("[SCAN] Native Type up-to-date, skipping: %s"), *NativeTypePath);
+                UE_LOG(LogEmmyLuaIntelliSense, Verbose, TEXT("[SCAN] Native Type up-to-date, skipping: %s"), *NativeTypePath);
             }
         }
     }
     
-    UE_LOG(LogTemp, Log, TEXT("Scanned existing assets: %d blueprints, %d pending native types (out of %d valid, %d total)"), PendingBlueprints.Num(), PendingNativeTypesCount, ValidNativeTypesCount, NativeTypes.Num());
+    UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("Scanned existing assets: %d blueprints, %d pending native types (out of %d valid, %d total)"), PendingBlueprints.Num(), PendingNativeTypesCount, ValidNativeTypesCount, NativeTypes.Num());
 }
 
 FString ULuaExportManager::GenerateUnLuaDefinitions() const
@@ -917,27 +918,27 @@ void ULuaExportManager::LoadExportCache()
     
     ExportedFilesCache.Empty();
     
-    UE_LOG(LogTemp, Log, TEXT("Loading export cache from: %s"), *ExportCacheFilePath);
+    UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("Loading export cache from: %s"), *ExportCacheFilePath);
     
     if (!FPaths::FileExists(ExportCacheFilePath))
     {
-        UE_LOG(LogTemp, Log, TEXT("Export cache file not found, starting fresh export. Path: %s"), *ExportCacheFilePath);
+        UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("Export cache file not found, starting fresh export. Path: %s"), *ExportCacheFilePath);
         return;
     }
     
     // 记录文件大小
     int64 FileSize = IFileManager::Get().FileSize(*ExportCacheFilePath);
-    UE_LOG(LogTemp, Log, TEXT("Export cache file size: %lld bytes"), FileSize);
+    UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("Export cache file size: %lld bytes"), FileSize);
     
     FString JsonString;
     double LoadStartTime = FPlatformTime::Seconds();
     if (!FFileHelper::LoadFileToString(JsonString, *ExportCacheFilePath))
     {
-        UE_LOG(LogTemp, Warning, TEXT("Failed to load export cache file: %s"), *ExportCacheFilePath);
+        UE_LOG(LogEmmyLuaIntelliSense, Warning, TEXT("Failed to load export cache file: %s"), *ExportCacheFilePath);
         return;
     }
     double LoadEndTime = FPlatformTime::Seconds();
-    UE_LOG(LogTemp, Log, TEXT("File loading took: %.3f ms"), (LoadEndTime - LoadStartTime) * 1000.0);
+    UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("File loading took: %.3f ms"), (LoadEndTime - LoadStartTime) * 1000.0);
     
     TSharedPtr<FJsonObject> JsonObject;
     TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(JsonString);
@@ -945,11 +946,11 @@ void ULuaExportManager::LoadExportCache()
     double ParseStartTime = FPlatformTime::Seconds();
     if (!FJsonSerializer::Deserialize(Reader, JsonObject) || !JsonObject.IsValid())
     {
-        UE_LOG(LogTemp, Warning, TEXT("Failed to parse export cache JSON"));
+        UE_LOG(LogEmmyLuaIntelliSense, Warning, TEXT("Failed to parse export cache JSON"));
         return;
     }
     double ParseEndTime = FPlatformTime::Seconds();
-    UE_LOG(LogTemp, Log, TEXT("JSON parsing took: %.3f ms"), (ParseEndTime - ParseStartTime) * 1000.0);
+    UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("JSON parsing took: %.3f ms"), (ParseEndTime - ParseStartTime) * 1000.0);
     
     double ProcessStartTime = FPlatformTime::Seconds();
     int32 FilteredCount = 0;
@@ -970,11 +971,11 @@ void ULuaExportManager::LoadExportCache()
         }
     }
     double ProcessEndTime = FPlatformTime::Seconds();
-    UE_LOG(LogTemp, Log, TEXT("Cache processing took: %.3f ms, filtered %d excluded paths"), (ProcessEndTime - ProcessStartTime) * 1000.0, FilteredCount);
+    UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("Cache processing took: %.3f ms, filtered %d excluded paths"), (ProcessEndTime - ProcessStartTime) * 1000.0, FilteredCount);
     
     // 总耗时
     double TotalTime = FPlatformTime::Seconds() - StartTime;
-    UE_LOG(LogTemp, Log, TEXT("LoadExportCache completed: %d entries loaded in %.3f ms"), ExportedFilesCache.Num(), TotalTime * 1000.0);
+    UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("LoadExportCache completed: %d entries loaded in %.3f ms"), ExportedFilesCache.Num(), TotalTime * 1000.0);
 }
 
 void ULuaExportManager::SaveExportCache()
@@ -982,13 +983,13 @@ void ULuaExportManager::SaveExportCache()
     // 开始计时
     double StartTime = FPlatformTime::Seconds();
     
-    UE_LOG(LogTemp, Log, TEXT("Saving export cache with %d entries to: %s"), ExportedFilesCache.Num(), *ExportCacheFilePath);
+    UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("Saving export cache with %d entries to: %s"), ExportedFilesCache.Num(), *ExportCacheFilePath);
     
     // 确保目录存在
     FString CacheDir = FPaths::GetPath(ExportCacheFilePath);
     if (!FPaths::DirectoryExists(CacheDir))
     {
-        UE_LOG(LogTemp, Log, TEXT("Creating cache directory: %s"), *CacheDir);
+        UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("Creating cache directory: %s"), *CacheDir);
         IFileManager::Get().MakeDirectory(*CacheDir, true);
     }
     
@@ -1005,31 +1006,31 @@ void ULuaExportManager::SaveExportCache()
     
     if (!FJsonSerializer::Serialize(JsonObject.ToSharedRef(), Writer))
     {
-        UE_LOG(LogTemp, Warning, TEXT("Failed to serialize export cache JSON"));
+        UE_LOG(LogEmmyLuaIntelliSense, Warning, TEXT("Failed to serialize export cache JSON"));
         return;
     }
     double SerializeEndTime = FPlatformTime::Seconds();
-    UE_LOG(LogTemp, Log, TEXT("JSON serialization took: %.3f ms, size: %d characters"), (SerializeEndTime - SerializeStartTime) * 1000.0, JsonString.Len());
+    UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("JSON serialization took: %.3f ms, size: %d characters"), (SerializeEndTime - SerializeStartTime) * 1000.0, JsonString.Len());
     
     double SaveStartTime = FPlatformTime::Seconds();
     if (FFileHelper::SaveStringToFile(JsonString, *ExportCacheFilePath))
     {
         double SaveEndTime = FPlatformTime::Seconds();
-        UE_LOG(LogTemp, Log, TEXT("File saving took: %.3f ms"), (SaveEndTime - SaveStartTime) * 1000.0);
+        UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("File saving took: %.3f ms"), (SaveEndTime - SaveStartTime) * 1000.0);
         
         // 验证文件大小
         int64 FileSize = IFileManager::Get().FileSize(*ExportCacheFilePath);
-        UE_LOG(LogTemp, Log, TEXT("Saved file size: %lld bytes"), FileSize);
+        UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("Saved file size: %lld bytes"), FileSize);
     }
     else
     {
-        UE_LOG(LogTemp, Warning, TEXT("Failed to save export cache to: %s"), *ExportCacheFilePath);
+        UE_LOG(LogEmmyLuaIntelliSense, Warning, TEXT("Failed to save export cache to: %s"), *ExportCacheFilePath);
         return;
     }
     
     // 总耗时
     double TotalTime = FPlatformTime::Seconds() - StartTime;
-    UE_LOG(LogTemp, Log, TEXT("SaveExportCache completed in %.3f ms"), TotalTime * 1000.0);
+    UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("SaveExportCache completed in %.3f ms"), TotalTime * 1000.0);
 }
 
 bool ULuaExportManager::ShouldReexport(const FString& AssetPath, const FDateTime& AssetModifyTime) const
@@ -1043,7 +1044,7 @@ bool ULuaExportManager::ShouldReexport(const FString& AssetPath, const FDateTime
         FString AssetHash = GetAssetHash(AssetPath);
         if (AssetHash.IsEmpty())
         {
-            UE_LOG(LogTemp, Warning, TEXT("[REEXPORT] Failed to get hash for %s, will export"), *AssetPath);
+            UE_LOG(LogEmmyLuaIntelliSense, Warning, TEXT("[REEXPORT] Failed to get hash for %s, will export"), *AssetPath);
             return true;
         }
         
@@ -1057,7 +1058,7 @@ bool ULuaExportManager::ShouldReexport(const FString& AssetPath, const FDateTime
         if (!CachedTime)
         {
             // 没有缓存记录，需要导出
-            UE_LOG(LogTemp, Log, TEXT("[REEXPORT] No cache found for %s, will export"), *AssetPath);
+            UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("[REEXPORT] No cache found for %s, will export"), *AssetPath);
             return true;
         }
         
@@ -1065,7 +1066,7 @@ bool ULuaExportManager::ShouldReexport(const FString& AssetPath, const FDateTime
         bool bShouldReexport = AssetModifyTime > *CachedTime;
         if (bShouldReexport)
         {
-            UE_LOG(LogTemp, Log, TEXT("[REEXPORT] %s: Asset time=%s, Cache time=%s, Should reexport=%s"), 
+            UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("[REEXPORT] %s: Asset time=%s, Cache time=%s, Should reexport=%s"), 
               *AssetPath, 
               *AssetModifyTime.ToString(), 
               *CachedTime->ToString(), 
@@ -1086,7 +1087,7 @@ bool ULuaExportManager::ShouldReexport(const FString& AssetPath, const FString& 
         FString AssetHash = CalculateFileHash(AssetFilePath);
         if (AssetHash.IsEmpty())
         {
-            UE_LOG(LogTemp, Warning, TEXT("[REEXPORT] Failed to get hash for file %s (asset: %s), will export"), *AssetFilePath, *AssetPath);
+            UE_LOG(LogEmmyLuaIntelliSense, Warning, TEXT("[REEXPORT] Failed to get hash for file %s (asset: %s), will export"), *AssetFilePath, *AssetPath);
             return true;
         }
         
@@ -1098,7 +1099,7 @@ bool ULuaExportManager::ShouldReexport(const FString& AssetPath, const FString& 
         FDateTime AssetModifyTime = IFileManager::Get().GetTimeStamp(*AssetFilePath);
         if (AssetModifyTime == FDateTime::MinValue())
         {
-            UE_LOG(LogTemp, Warning, TEXT("[REEXPORT] Failed to get modify time for file %s (asset: %s), will export"), *AssetFilePath, *AssetPath);
+            UE_LOG(LogEmmyLuaIntelliSense, Warning, TEXT("[REEXPORT] Failed to get modify time for file %s (asset: %s), will export"), *AssetFilePath, *AssetPath);
             return true;
         }
         
@@ -1107,13 +1108,13 @@ bool ULuaExportManager::ShouldReexport(const FString& AssetPath, const FString& 
         if (!CachedTime)
         {
             // 没有缓存记录，需要导出
-            UE_LOG(LogTemp, Log, TEXT("[REEXPORT] No cache found for %s, will export"), *AssetPath);
+            UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("[REEXPORT] No cache found for %s, will export"), *AssetPath);
             return true;
         }
         
         // 比较修改时间
         bool bShouldReexport = AssetModifyTime > *CachedTime;
-        UE_LOG(LogTemp, Log, TEXT("[REEXPORT] %s: Asset time=%s, Cache time=%s, Should reexport=%s"), 
+        UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("[REEXPORT] %s: Asset time=%s, Cache time=%s, Should reexport=%s"), 
             *AssetPath, 
             *AssetModifyTime.ToString(), 
             *CachedTime->ToString(), 
@@ -1154,14 +1155,14 @@ bool ULuaExportManager::IsValidFieldForExport(const UField* Field, FString& OutF
 {
     if (!Field)
     {
-        UE_LOG(LogTemp, Warning, TEXT("IsValidFieldForExport: Field is null"));
+        UE_LOG(LogEmmyLuaIntelliSense, Warning, TEXT("IsValidFieldForExport: Field is null"));
         return false;
     }
 
     // 检查Field是否有效
     if (!IsValid(Field))
     {
-        UE_LOG(LogTemp, Warning, TEXT("IsValidFieldForExport: Field is not valid: %s"), Field ? *Field->GetName() : TEXT("null"));
+        UE_LOG(LogEmmyLuaIntelliSense, Warning, TEXT("IsValidFieldForExport: Field is not valid: %s"), Field ? *Field->GetName() : TEXT("null"));
         return false;
     }
     
@@ -1172,13 +1173,13 @@ bool ULuaExportManager::IsValidFieldForExport(const UField* Field, FString& OutF
     }
     catch (...)
     {
-        UE_LOG(LogTemp, Warning, TEXT("IsValidFieldForExport: Exception getting field name"));
+        UE_LOG(LogEmmyLuaIntelliSense, Warning, TEXT("IsValidFieldForExport: Exception getting field name"));
         return false;
     }
     
     if (OutFieldName.IsEmpty() || OutFieldName == TEXT("None") || OutFieldName == TEXT("NULL"))
     {
-        UE_LOG(LogTemp, Warning, TEXT("IsValidFieldForExport: Skipping field with invalid name: %s"), *OutFieldName);
+        UE_LOG(LogEmmyLuaIntelliSense, Warning, TEXT("IsValidFieldForExport: Skipping field with invalid name: %s"), *OutFieldName);
         return false;
     }
 
@@ -1186,14 +1187,14 @@ bool ULuaExportManager::IsValidFieldForExport(const UField* Field, FString& OutF
     if (OutFieldName.StartsWith(TEXT(".")) || OutFieldName.EndsWith(TEXT(".")) ||
         OutFieldName.StartsWith(TEXT(" ")) || OutFieldName.EndsWith(TEXT(" ")))
     {
-        UE_LOG(LogTemp, Warning, TEXT("IsValidFieldForExport: Skipping field with invalid name format: %s"), *OutFieldName);
+        UE_LOG(LogEmmyLuaIntelliSense, Warning, TEXT("IsValidFieldForExport: Skipping field with invalid name format: %s"), *OutFieldName);
         return false;
     }
     
     // 检查名称长度是否合理（避免过长的非法名称）
     if (OutFieldName.Len() > 256)
     {
-        UE_LOG(LogTemp, Warning, TEXT("IsValidFieldForExport: Skipping field with excessively long name (length: %d)"), OutFieldName.Len());
+        UE_LOG(LogEmmyLuaIntelliSense, Warning, TEXT("IsValidFieldForExport: Skipping field with excessively long name (length: %d)"), OutFieldName.Len());
         return false;
     }
 
@@ -1209,17 +1210,17 @@ FDateTime ULuaExportManager::GetAssetModifyTime(const FString& AssetPath) const
         FString PackageName = AssetPath.RightChop(6); // 移除 "/Game/"
         FString AssetFilePath = FPaths::Combine(FPaths::ProjectContentDir(), PackageName + TEXT(".uasset"));
         
-        UE_LOG(LogTemp, Log, TEXT("[TIMESTAMP] Checking Game Blueprint file: %s -> %s"), *AssetPath, *AssetFilePath);
+        UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("[TIMESTAMP] Checking Game Blueprint file: %s -> %s"), *AssetPath, *AssetFilePath);
         
         if (FPaths::FileExists(AssetFilePath))
         {
             FDateTime ModifyTime = IFileManager::Get().GetTimeStamp(*AssetFilePath);
-            UE_LOG(LogTemp, Log, TEXT("[TIMESTAMP] Blueprint modify time: %s"), *ModifyTime.ToString());
+            UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("[TIMESTAMP] Blueprint modify time: %s"), *ModifyTime.ToString());
             return ModifyTime;
         }
         else
         {
-            UE_LOG(LogTemp, Warning, TEXT("[TIMESTAMP] Game Blueprint file not found: %s"), *AssetFilePath);
+            UE_LOG(LogEmmyLuaIntelliSense, Warning, TEXT("[TIMESTAMP] Game Blueprint file not found: %s"), *AssetFilePath);
         }
     }
     // 处理插件路径下的资源（如 /PluginName/...）
@@ -1232,22 +1233,22 @@ FDateTime ULuaExportManager::GetAssetModifyTime(const FString& AssetPath) const
         // 尝试通过 FPackageName 转换为文件路径
         if (FPackageName::TryConvertLongPackageNameToFilename(PackageName, AssetFilePath, TEXT(".uasset")))
         {
-            UE_LOG(LogTemp, Log, TEXT("[TIMESTAMP] Checking Plugin Blueprint file: %s -> %s"), *AssetPath, *AssetFilePath);
+            UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("[TIMESTAMP] Checking Plugin Blueprint file: %s -> %s"), *AssetPath, *AssetFilePath);
             
             if (FPaths::FileExists(AssetFilePath))
             {
                 FDateTime ModifyTime = IFileManager::Get().GetTimeStamp(*AssetFilePath);
-                UE_LOG(LogTemp, Log, TEXT("[TIMESTAMP] Plugin Blueprint modify time: %s"), *ModifyTime.ToString());
+                UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("[TIMESTAMP] Plugin Blueprint modify time: %s"), *ModifyTime.ToString());
                 return ModifyTime;
             }
             else
             {
-                UE_LOG(LogTemp, Warning, TEXT("[TIMESTAMP] Plugin Blueprint file not found: %s"), *AssetFilePath);
+                UE_LOG(LogEmmyLuaIntelliSense, Warning, TEXT("[TIMESTAMP] Plugin Blueprint file not found: %s"), *AssetFilePath);
             }
         }
         else
         {
-            UE_LOG(LogTemp, Warning, TEXT("[TIMESTAMP] Failed to convert package name to file path: %s"), *AssetPath);
+            UE_LOG(LogEmmyLuaIntelliSense, Warning, TEXT("[TIMESTAMP] Failed to convert package name to file path: %s"), *AssetPath);
         }
     }
     // 对于原生类型，使用插件模块的编译时间
@@ -1283,7 +1284,7 @@ void ULuaExportManager::LoadExcludedPathsFromFile(TArray<FString>& OutExcludedPa
 
     if (!FPaths::FileExists(ConfigFilePath))
     {
-        UE_LOG(LogTemp, Warning, TEXT("[CONFIG] Excluded paths config file not found, using default exclusions: %s"), *ConfigFilePath);
+        UE_LOG(LogEmmyLuaIntelliSense, Warning, TEXT("[CONFIG] Excluded paths config file not found, using default exclusions: %s"), *ConfigFilePath);
         return;
     }
     
@@ -1314,12 +1315,12 @@ void ULuaExportManager::LoadExcludedPathsFromFile(TArray<FString>& OutExcludedPa
             }
         }
         
-        UE_LOG(LogTemp, Log, TEXT("[CONFIG] Loaded %d excluded paths from config file"), OutExcludedPaths.Num());
+        UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("[CONFIG] Loaded %d excluded paths from config file"), OutExcludedPaths.Num());
         
         // 打印前几个路径用于调试
         for (int32 i = 0; i < FMath::Min(3, OutExcludedPaths.Num()); i++)
         {
-            UE_LOG(LogTemp, Log, TEXT("[CONFIG] Sample path [%d]: %s"), i, *OutExcludedPaths[i]);
+            UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("[CONFIG] Sample path [%d]: %s"), i, *OutExcludedPaths[i]);
         }
     }
 }
@@ -1334,7 +1335,7 @@ FString ULuaExportManager::CalculateFileHash(const FString& FilePath) const
     TArray<uint8> FileData;
     if (!FFileHelper::LoadFileToArray(FileData, *FilePath))
     {
-        UE_LOG(LogTemp, Warning, TEXT("[HASH] Failed to load file for hashing: %s"), *FilePath);
+        UE_LOG(LogEmmyLuaIntelliSense, Warning, TEXT("[HASH] Failed to load file for hashing: %s"), *FilePath);
         return FString();
     }
     
@@ -1362,16 +1363,16 @@ FString ULuaExportManager::GetAssetHash(const FString& AssetPath) const
         FString PackageName = AssetPath.RightChop(6); // 移除 "/Game/"
         FString AssetFilePath = FPaths::Combine(FPaths::ProjectContentDir(), PackageName + TEXT(".uasset"));
         
-        UE_LOG(LogTemp, Log, TEXT("[HASH] Calculating hash for Game Blueprint file: %s -> %s"), *AssetPath, *AssetFilePath);
+        UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("[HASH] Calculating hash for Game Blueprint file: %s -> %s"), *AssetPath, *AssetFilePath);
         
         FString Hash = CalculateFileHash(AssetFilePath);
         if (!Hash.IsEmpty())
         {
-            UE_LOG(LogTemp, Log, TEXT("[HASH] Game Blueprint hash: %s"), *Hash);
+            UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("[HASH] Game Blueprint hash: %s"), *Hash);
         }
         else
         {
-            UE_LOG(LogTemp, Warning, TEXT("[HASH] Failed to calculate hash for Game Blueprint: %s"), *AssetFilePath);
+            UE_LOG(LogEmmyLuaIntelliSense, Warning, TEXT("[HASH] Failed to calculate hash for Game Blueprint: %s"), *AssetFilePath);
         }
         
         return Hash;
@@ -1386,23 +1387,23 @@ FString ULuaExportManager::GetAssetHash(const FString& AssetPath) const
         // 尝试通过 FPackageName 转换为文件路径
         if (FPackageName::TryConvertLongPackageNameToFilename(PackageName, AssetFilePath, TEXT(".uasset")))
         {
-            UE_LOG(LogTemp, Log, TEXT("[HASH] Calculating hash for Plugin Blueprint file: %s -> %s"), *AssetPath, *AssetFilePath);
+            UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("[HASH] Calculating hash for Plugin Blueprint file: %s -> %s"), *AssetPath, *AssetFilePath);
             
             FString Hash = CalculateFileHash(AssetFilePath);
             if (!Hash.IsEmpty())
             {
-                UE_LOG(LogTemp, Log, TEXT("[HASH] Plugin Blueprint hash: %s"), *Hash);
+                UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("[HASH] Plugin Blueprint hash: %s"), *Hash);
             }
             else
             {
-                UE_LOG(LogTemp, Warning, TEXT("[HASH] Failed to calculate hash for Plugin Blueprint: %s"), *AssetFilePath);
+                UE_LOG(LogEmmyLuaIntelliSense, Warning, TEXT("[HASH] Failed to calculate hash for Plugin Blueprint: %s"), *AssetFilePath);
             }
             
             return Hash;
         }
         else
         {
-            UE_LOG(LogTemp, Warning, TEXT("[HASH] Failed to convert package name to file path: %s"), *AssetPath);
+            UE_LOG(LogEmmyLuaIntelliSense, Warning, TEXT("[HASH] Failed to convert package name to file path: %s"), *AssetPath);
         }
     }
     
@@ -1418,13 +1419,13 @@ bool ULuaExportManager::ShouldReexportByHash(const FString& AssetPath, const FSt
     if (!CachedHash)
     {
         // 没有缓存记录，需要导出
-        UE_LOG(LogTemp, Log, TEXT("[REEXPORT_HASH] No hash cache found for %s, will export"), *AssetPath);
+        UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("[REEXPORT_HASH] No hash cache found for %s, will export"), *AssetPath);
         return true;
     }
     
     // 如果哈希值不同，需要重新导出
     bool bShouldReexport = AssetHash != *CachedHash;
-    UE_LOG(LogTemp, Log, TEXT("[REEXPORT_HASH] %s: Asset hash=%s, Cache hash=%s, Should reexport=%s"), 
+    UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("[REEXPORT_HASH] %s: Asset hash=%s, Cache hash=%s, Should reexport=%s"), 
         *AssetPath, 
         *AssetHash, 
         **CachedHash, 
@@ -1436,7 +1437,7 @@ bool ULuaExportManager::ShouldReexportByHash(const FString& AssetPath, const FSt
 void ULuaExportManager::UpdateExportCacheByHash(const FString& AssetPath, const FString& AssetHash)
 {
     ExportedFilesHashCache.Add(AssetPath, AssetHash);
-    UE_LOG(LogTemp, Log, TEXT("[CACHE_HASH] Updated hash cache for %s: %s"), *AssetPath, *AssetHash);
+    UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("[CACHE_HASH] Updated hash cache for %s: %s"), *AssetPath, *AssetHash);
 }
 
 bool ULuaExportManager::ShouldExcludeFromExport(const FString& AssetPath) const
@@ -1451,14 +1452,14 @@ bool ULuaExportManager::ShouldExcludeFromExport(const FString& AssetPath) const
         LoadExcludedPathsFromFile(TempExcludedPaths);
         ExcludedPaths = TSet<FString>(TempExcludedPaths);
         bPathsLoaded = true;
-        UE_LOG(LogTemp, Log, TEXT("[EXCLUDE] Loaded %d excluded paths for filtering"), ExcludedPaths.Num());
+        UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("[EXCLUDE] Loaded %d excluded paths for filtering"), ExcludedPaths.Num());
         
         // 打印前几个排除路径用于调试
         int32 Count = 0;
         for (const FString& Path : ExcludedPaths)
         {
             if (Count >= 5) break;
-            UE_LOG(LogTemp, Log, TEXT("[EXCLUDE] Sample excluded path [%d]: %s"), Count, *Path);
+            UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("[EXCLUDE] Sample excluded path [%d]: %s"), Count, *Path);
             Count++;
         }
     }
@@ -1470,7 +1471,7 @@ bool ULuaExportManager::ShouldExcludeFromExport(const FString& AssetPath) const
     // 首先检查完整路径
     if (ExcludedPaths.Contains(CurrentPath))
     {
-        UE_LOG(LogTemp, Verbose, TEXT("[EXCLUDE] Path excluded (exact match): %s"), *AssetPath);
+        UE_LOG(LogEmmyLuaIntelliSense, Verbose, TEXT("[EXCLUDE] Path excluded (exact match): %s"), *AssetPath);
         return true;
     }
     
@@ -1481,11 +1482,11 @@ bool ULuaExportManager::ShouldExcludeFromExport(const FString& AssetPath) const
         CurrentPath = CurrentPath.Left(LastSlashIndex);
         if (ExcludedPaths.Contains(CurrentPath))
         {
-            UE_LOG(LogTemp, Verbose, TEXT("[EXCLUDE] Path excluded (parent match): %s (matched: %s)"), *AssetPath, *CurrentPath);
+            UE_LOG(LogEmmyLuaIntelliSense, Verbose, TEXT("[EXCLUDE] Path excluded (parent match): %s (matched: %s)"), *AssetPath, *CurrentPath);
             return true;
         }
     }
     
-    UE_LOG(LogTemp, VeryVerbose, TEXT("[EXCLUDE] Path allowed: %s"), *AssetPath);
+    UE_LOG(LogEmmyLuaIntelliSense, VeryVerbose, TEXT("[EXCLUDE] Path allowed: %s"), *AssetPath);
     return false;
 }

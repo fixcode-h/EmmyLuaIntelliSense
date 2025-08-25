@@ -13,10 +13,13 @@
 
 #define LOCTEXT_NAMESPACE "FEmmyLuaIntelliSenseModule"
 
+// 定义插件专属的日志类别
+DEFINE_LOG_CATEGORY(LogEmmyLuaIntelliSense);
+
 void FEmmyLuaIntelliSenseModule::StartupModule()
 {
 	// This code will execute after your module is loaded into memory; the exact timing is specified in the .uplugin file
-	UE_LOG(LogTemp, Warning, TEXT("=== EmmyLuaIntelliSense module starting up ==="));
+	UE_LOG(LogEmmyLuaIntelliSense, Warning, TEXT("=== EmmyLuaIntelliSense module starting up ==="));
 	
 	// 注册插件设置
 	RegisterSettings();
@@ -24,14 +27,14 @@ void FEmmyLuaIntelliSenseModule::StartupModule()
 	// 注册引擎初始化完成后的回调
 	FCoreDelegates::OnPostEngineInit.AddRaw(this, &FEmmyLuaIntelliSenseModule::OnPostEngineInit);
 	
-	UE_LOG(LogTemp, Warning, TEXT("=== EmmyLuaIntelliSense module startup completed ==="));
+	UE_LOG(LogEmmyLuaIntelliSense, Warning, TEXT("=== EmmyLuaIntelliSense module startup completed ==="));
 }
 
 void FEmmyLuaIntelliSenseModule::ShutdownModule()
 {
 	// This function may be called during shutdown to clean up your module.  For modules that support dynamic reloading,
 	// we call this function before unloading the module.
-	UE_LOG(LogTemp, Log, TEXT("EmmyLuaIntelliSense module shutting down..."));
+	UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("EmmyLuaIntelliSense module shutting down..."));
 	
 	// 注销插件设置
 	UnregisterSettings();
@@ -58,19 +61,19 @@ void FEmmyLuaIntelliSenseModule::OnAssetRegistryFilesLoaded()
 
 void FEmmyLuaIntelliSenseModule::OnPostEngineInit()
 {
-	UE_LOG(LogTemp, Warning, TEXT("=== OnPostEngineInit called ==="));
+	UE_LOG(LogEmmyLuaIntelliSense, Warning, TEXT("=== OnPostEngineInit called ==="));
 	
 	// 确保在编辑器环境中运行
 	if (!GIsEditor)
 	{
-		UE_LOG(LogTemp, Warning, TEXT("Not in editor environment, skipping initialization"));
+		UE_LOG(LogEmmyLuaIntelliSense, Warning, TEXT("Not in editor environment, skipping initialization"));
 		return;
 	}
 	
 	// 防止重复初始化
 	if (bIsInitialized)
 	{
-		UE_LOG(LogTemp, Warning, TEXT("Already initialized, skipping"));
+		UE_LOG(LogEmmyLuaIntelliSense, Warning, TEXT("Already initialized, skipping"));
 		return;
 	}
 	
@@ -82,20 +85,20 @@ void FEmmyLuaIntelliSenseModule::OnPostEngineInit()
 	if (AssetRegistry.IsLoadingAssets())
 	{
 		// 如果还在加载，注册回调等待加载完成
-		UE_LOG(LogTemp, Warning, TEXT("Asset registry still loading, waiting for completion..."));
+		UE_LOG(LogEmmyLuaIntelliSense, Warning, TEXT("Asset registry still loading, waiting for completion..."));
 		AssetRegistry.OnFilesLoaded().AddRaw(this, &FEmmyLuaIntelliSenseModule::OnAssetRegistryFilesLoaded);
 	}
 	else
 	{
 		// 如果已经加载完成，直接初始化
-		UE_LOG(LogTemp, Warning, TEXT("Asset registry already loaded, initializing immediately..."));
+		UE_LOG(LogEmmyLuaIntelliSense, Warning, TEXT("Asset registry already loaded, initializing immediately..."));
 		OnAssetRegistryFilesLoaded();
 	}
 }
 
 void FEmmyLuaIntelliSenseModule::InitializeLuaExportManager()
 {
-	UE_LOG(LogTemp, Warning, TEXT("=== Initializing Lua Export Manager... ==="));
+	UE_LOG(LogEmmyLuaIntelliSense, Warning, TEXT("=== Initializing Lua Export Manager... ==="));
 	
 	// 设置初始化标志
 	bIsInitialized = true;
@@ -104,7 +107,7 @@ void FEmmyLuaIntelliSenseModule::InitializeLuaExportManager()
 	ULuaExportManager* ExportManager = ULuaExportManager::Get();
 	if (!ExportManager)
 	{
-		UE_LOG(LogTemp, Error, TEXT("Failed to get ULuaExportManager instance"));
+		UE_LOG(LogEmmyLuaIntelliSense, Error, TEXT("Failed to get ULuaExportManager instance"));
 		return;
 	}
 	
@@ -118,14 +121,14 @@ void FEmmyLuaIntelliSenseModule::ShowExportDialogIfNeeded()
 	if (ExportManager && ExportManager->HasPendingChanges())
 	{
 		int32 FileCount = ExportManager->GetPendingFilesCount();
-		UE_LOG(LogTemp, Log, TEXT("Showing Lua export dialog due to pending changes (%d files)..."), FileCount);
+		UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("Showing Lua export dialog due to pending changes (%d files)..."), FileCount);
 		
 		// 显示简化的导出确认对话框，包含文件数量信息
 		FLuaExportDialog::ShowExportConfirmation(FileCount);
 	}
 	else
 	{
-		UE_LOG(LogTemp, Log, TEXT("No pending changes, skipping export dialog."));
+		UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("No pending changes, skipping export dialog."));
 	}
 }
 
