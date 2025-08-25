@@ -111,6 +111,9 @@ void FEmmyLuaIntelliSenseModule::InitializeLuaExportManager()
 		return;
 	}
 	
+	// 扫描现有的蓝图和类型，添加到待导出列表
+	ExportManager->ScanExistingAssets();
+	
 	ShowExportDialogIfNeeded();
 }
 
@@ -120,11 +123,15 @@ void FEmmyLuaIntelliSenseModule::ShowExportDialogIfNeeded()
 	ULuaExportManager* ExportManager = ULuaExportManager::Get();
 	if (ExportManager && ExportManager->HasPendingChanges())
 	{
-		int32 FileCount = ExportManager->GetPendingFilesCount();
-		UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("Showing Lua export dialog due to pending changes (%d files)..."), FileCount);
+		int32 BlueprintCount = ExportManager->GetPendingBlueprintsCount();
+		int32 NativeTypeCount = ExportManager->GetPendingNativeTypesCount();
+		int32 CoreFileCount = ExportManager->GetPendingCoreFilesCount();
+		int32 TotalCount = BlueprintCount + NativeTypeCount + CoreFileCount;
 		
-		// 显示简化的导出确认对话框，包含文件数量信息
-		FLuaExportDialog::ShowExportConfirmation(FileCount);
+		UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("Showing Lua export dialog due to pending changes (%d blueprints, %d native types, %d core files, %d total files)..."), BlueprintCount, NativeTypeCount, CoreFileCount, TotalCount);
+		
+		// 显示简化的导出确认对话框，分别显示蓝图、原生类型和核心文件数量
+		FLuaExportDialog::ShowExportConfirmation(BlueprintCount, NativeTypeCount, CoreFileCount);
 	}
 	else
 	{

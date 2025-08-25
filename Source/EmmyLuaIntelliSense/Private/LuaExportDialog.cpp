@@ -36,6 +36,70 @@ void FLuaExportDialog::ShowExportConfirmation(int32 FileCount)
     FLuaExportNotificationManager::ShowExportConfirmation(Message);
 }
 
+void FLuaExportDialog::ShowExportConfirmation(int32 BlueprintCount, int32 NativeTypeCount)
+{
+    FString Message;
+    if (BlueprintCount > 0 && NativeTypeCount > 0)
+    {
+        Message = FString::Printf(TEXT("检测到 %d 个蓝图文件和 %d 个原生类型文件需要导出，是否要导出Lua IntelliSense文件以获得更好的代码提示？"), BlueprintCount, NativeTypeCount);
+    }
+    else if (BlueprintCount > 0)
+    {
+        Message = FString::Printf(TEXT("检测到 %d 个蓝图文件需要导出，是否要导出Lua IntelliSense文件以获得更好的代码提示？"), BlueprintCount);
+    }
+    else if (NativeTypeCount > 0)
+    {
+        Message = FString::Printf(TEXT("检测到 %d 个原生类型文件需要导出，是否要导出Lua IntelliSense文件以获得更好的代码提示？"), NativeTypeCount);
+    }
+    else
+    {
+        Message = TEXT("是否要导出Lua IntelliSense文件以获得更好的代码提示？");
+    }
+    
+    // 使用非阻塞通知替代阻塞对话框
+    FLuaExportNotificationManager::ShowExportConfirmation(Message);
+}
+
+void FLuaExportDialog::ShowExportConfirmation(int32 BlueprintCount, int32 NativeTypeCount, int32 CoreFileCount)
+{
+    FString Message;
+    TArray<FString> Parts;
+    
+    if (BlueprintCount > 0)
+    {
+        Parts.Add(FString::Printf(TEXT("%d 个蓝图文件"), BlueprintCount));
+    }
+    if (NativeTypeCount > 0)
+    {
+        Parts.Add(FString::Printf(TEXT("%d 个原生类型文件"), NativeTypeCount));
+    }
+    if (CoreFileCount > 0)
+    {
+        Parts.Add(FString::Printf(TEXT("%d 个核心文件"), CoreFileCount));
+    }
+    
+    if (Parts.Num() > 0)
+    {
+        FString FileList;
+        for (int32 i = 0; i < Parts.Num(); ++i)
+        {
+            if (i > 0)
+            {
+                FileList += TEXT("\n");
+            }
+            FileList += Parts[i];
+        }
+        Message = FString::Printf(TEXT("检测到以下文件需要导出：\n%s\n\n是否要导出Lua IntelliSense文件以获得更好的代码提示？"), *FileList);
+    }
+    else
+    {
+        Message = TEXT("是否要导出Lua IntelliSense文件以获得更好的代码提示？");
+    }
+    
+    // 使用非阻塞通知替代阻塞对话框
+    FLuaExportNotificationManager::ShowExportConfirmation(Message);
+}
+
 // FLuaExportNotificationManager Implementation
 
 TSharedPtr<SNotificationItem> FLuaExportNotificationManager::ShowExportConfirmation(const FString& Message)

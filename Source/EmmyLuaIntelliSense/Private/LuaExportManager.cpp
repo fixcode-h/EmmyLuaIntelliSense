@@ -80,9 +80,6 @@ void ULuaExportManager::Initialize(FSubsystemCollectionBase& Collection)
     // 加载导出缓存
     LoadExportCache();
 
-    // 扫描现有的蓝图和类型，添加到待导出列表
-    ScanExistingAssets();
-
     bInitialized = true;
 
     UE_LOG(LogEmmyLuaIntelliSense, Warning, TEXT("=== LuaExportManager initialized successfully. Output directory: %s ==="), *OutputDir);
@@ -325,13 +322,27 @@ bool ULuaExportManager::HasPendingChanges() const
 
 int32 ULuaExportManager::GetPendingFilesCount() const
 {
-    int32 Count = PendingBlueprints.Num() + PendingNativeTypes.Num();
+    return GetPendingBlueprintsCount() + GetPendingNativeTypesCount() + GetPendingCoreFilesCount();
+}
+
+int32 ULuaExportManager::GetPendingBlueprintsCount() const
+{
+    return PendingBlueprints.Num();
+}
+
+int32 ULuaExportManager::GetPendingNativeTypesCount() const
+{
+    return PendingNativeTypes.Num();
+}
+
+int32 ULuaExportManager::GetPendingCoreFilesCount() const
+{
     // 如果有原生类型需要导出，还会额外生成UE核心类型文件
     if (PendingNativeTypes.Num() > 0)
     {
-        Count += 3; // UE.lua, UE4.lua, UnLua.lua
+        return 3; // UE.lua, UE4.lua, UnLua.lua
     }
-    return Count;
+    return 0;
 }
 
 void ULuaExportManager::ClearPendingChanges()
@@ -342,6 +353,13 @@ void ULuaExportManager::ClearPendingChanges()
 
 void ULuaExportManager::OnAssetAdded(const FAssetData& AssetData)
 {
+    // 在初始化完成之前忽略资源注册表事件，避免重复添加
+    if (!bInitialized)
+    {
+        UE_LOG(LogEmmyLuaIntelliSense, VeryVerbose, TEXT("[EVENT] Ignoring OnAssetAdded during initialization: %s"), *AssetData.ObjectPath.ToString());
+        return;
+    }
+    
     AddToPendingBlueprints(AssetData);
 }
 
@@ -370,6 +388,13 @@ void ULuaExportManager::OnAssetRenamed(const FAssetData& AssetData, const FStrin
 
 void ULuaExportManager::OnAssetUpdated(const FAssetData& AssetData)
 {
+    // 在初始化完成之前忽略资源注册表事件，避免重复添加
+    if (!bInitialized)
+    {
+        UE_LOG(LogEmmyLuaIntelliSense, VeryVerbose, TEXT("[EVENT] Ignoring OnAssetUpdated during initialization: %s"), *AssetData.ObjectPath.ToString());
+        return;
+    }
+    
     AddToPendingBlueprints(AssetData);
 }
 
@@ -379,7 +404,18 @@ void ULuaExportManager::AddToPendingBlueprints(const FAssetData& AssetData)
     {
         return;
     }
-    PendingBlueprints.Add(AssetData.ObjectPath.ToString());
+    
+    FString AssetPath = AssetData.ObjectPath.ToString();
+    
+    // 检查是否已经在待导出列表中，避免重复添加
+    if (PendingBlueprints.Contains(AssetPath))
+    {
+        UE_LOG(LogEmmyLuaIntelliSense, VeryVerbose, TEXT("[PENDING] Blueprint already in pending list, skipping: %s"), *AssetPath);
+        return;
+    }
+    
+    PendingBlueprints.Add(AssetPath);
+    UE_LOG(LogEmmyLuaIntelliSense, Verbose, TEXT("[PENDING] Added Blueprint to pending list: %s (Total: %d)"), *AssetPath, PendingBlueprints.Num());
 }
 
 void ULuaExportManager::ExportBlueprint(const UBlueprint* Blueprint)
@@ -787,24 +823,51 @@ void ULuaExportManager::CheckNativeTypesChanges()
     CollectNativeTypes(CurrentNativeTypes);
 
     // 简单的变化检测：如果数量发生变化，则认为有变化
-    static int32 LastNativeTypesCount = 0;
+    static int32 LastNativeTypesCount = -1; // 初始化为-1，避免首次调用时误判
+    static bool bFirstCheck = true;
+    
+    if (bFirstCheck)
+    {
+        // 首次检查时，只记录数量，不添加到待导出列表
+        // 因为ScanExistingAssets会处理初始化时的导出需求
+        LastNativeTypesCount = CurrentNativeTypes.Num();
+        bFirstCheck = false;
+        UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("First native types check: %d types found, skipping auto-export"), CurrentNativeTypes.Num());
+        return;
+    }
+    
     if (CurrentNativeTypes.Num() != LastNativeTypesCount)
     {
+        int32 OldCount = LastNativeTypesCount;
         LastNativeTypesCount = CurrentNativeTypes.Num();
         
-        // 将有效的原生类型标记为待导出
-         int32 ValidTypesCount = 0;
-         for (const UField* Field : CurrentNativeTypes)
-         {
-             FString FieldName;
-             if (IsValidFieldForExport(Field, FieldName))
-             {
-                 PendingNativeTypes.Add(TWeakObjectPtr<const UField>(Field));
-                 ValidTypesCount++;
-             }
-         }
-
-        UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("Native types changed detected. %d valid types marked for export (out of %d total)."), ValidTypesCount, CurrentNativeTypes.Num());
+        // 只有在类型数量增加时才添加到待导出列表
+        // 这样可以避免在初始化时重复添加所有类型
+        if (CurrentNativeTypes.Num() > OldCount)
+        {
+            // 将有效的原生类型标记为待导出
+            int32 ValidTypesCount = 0;
+            for (const UField* Field : CurrentNativeTypes)
+            {
+                FString FieldName;
+                if (IsValidFieldForExport(Field, FieldName))
+                {
+                    // 检查是否已经在待导出列表中
+                    TWeakObjectPtr<const UField> WeakField(Field);
+                    if (!PendingNativeTypes.Contains(WeakField))
+                    {
+                        PendingNativeTypes.Add(WeakField);
+                        ValidTypesCount++;
+                    }
+                }
+            }
+            
+            UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("Native types increased from %d to %d. %d new valid types marked for export."), OldCount, CurrentNativeTypes.Num(), ValidTypesCount);
+        }
+        else
+        {
+            UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("Native types count changed from %d to %d (decreased or no change), no action needed."), OldCount, CurrentNativeTypes.Num());
+        }
     }
 }
 

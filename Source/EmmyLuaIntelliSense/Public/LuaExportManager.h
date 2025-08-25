@@ -41,11 +41,23 @@ public:
     /** 检查是否有待导出的变更 */
     bool HasPendingChanges() const;
 
-    /** 获取待导出文件数量 */
+    /** 获取待处理文件数量 */
     int32 GetPendingFilesCount() const;
+    
+    /** 获取待处理蓝图数量 */
+    int32 GetPendingBlueprintsCount() const;
+    
+    /** 获取待处理原生类型数量 */
+    int32 GetPendingNativeTypesCount() const;
+    
+    /** 获取待处理核心文件数量（UE.lua, UE4.lua, UnLua.lua） */
+    int32 GetPendingCoreFilesCount() const;
 
     /** 清除待导出的变更记录 */
     void ClearPendingChanges();
+    
+    /** 扫描现有资源并添加到待导出列表 */
+    void ScanExistingAssets();
 
 private:
 
@@ -128,9 +140,6 @@ private:
 
     /** 添加监听目录 */
     void AddWatchDirectory(const FString& Directory);
-
-    /** 扫描现有资源并添加到待导出列表 */
-    void ScanExistingAssets();
     
     /** 生成UnLua特定的定义 */
     FString GenerateUnLuaDefinitions() const;

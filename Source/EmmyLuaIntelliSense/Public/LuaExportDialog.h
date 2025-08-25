@@ -18,6 +18,12 @@ public:
     
     /** 显示导出确认对话框（带文件数量） */
     static void ShowExportConfirmation(int32 FileCount);
+    
+    /** 显示导出确认对话框（分别显示蓝图和原生类型数量） */
+    static void ShowExportConfirmation(int32 BlueprintCount, int32 NativeTypeCount);
+    
+    /** 显示导出确认对话框（分别显示蓝图、原生类型和核心文件数量） */
+    static void ShowExportConfirmation(int32 BlueprintCount, int32 NativeTypeCount, int32 CoreFileCount);
 };
 
 /**
