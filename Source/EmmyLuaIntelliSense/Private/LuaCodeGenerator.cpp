@@ -288,6 +288,8 @@ void FEmmyLuaCodeGenerator::GenerateClassProperties(const UClass* Class, FString
 
 void FEmmyLuaCodeGenerator::GenerateClassFunctions(const UClass* Class, FString& Code)
 {
+    FString ClassName = GetTypeName(Class);
+    
     for (TFieldIterator<UFunction> FunctionIt(Class, EFieldIteratorFlags::ExcludeSuper); FunctionIt; ++FunctionIt)
     {
         UFunction* Function = *FunctionIt;
@@ -296,7 +298,7 @@ void FEmmyLuaCodeGenerator::GenerateClassFunctions(const UClass* Class, FString&
             continue;
         }
         
-        GenerateFunction(Function, Code);
+        GenerateFunction(Function, Code, ClassName);
     }
 }
 
@@ -328,7 +330,7 @@ void FEmmyLuaCodeGenerator::GenerateProperty(const FProperty* Property, FString&
     }
 }
 
-void FEmmyLuaCodeGenerator::GenerateFunction(const UFunction* Function, FString& Code)
+void FEmmyLuaCodeGenerator::GenerateFunction(const UFunction* Function, FString& Code, const FString& ClassName)
 {
     if (!Function)
     {
@@ -372,9 +374,19 @@ void FEmmyLuaCodeGenerator::GenerateFunction(const UFunction* Function, FString&
         Code += FString::Printf(TEXT("---@return %s\n"), *ReturnType);
     }
     
-    // 生成函数声明
+    // 生成函数声明，根据是否为静态函数选择连接符
     FString ParamList = FString::Join(Parameters, TEXT(", "));
-    Code += FString::Printf(TEXT("function %s(%s) end\n\n"), *FunctionName, *ParamList);
+    bool bIsStatic = Function->HasAnyFunctionFlags(FUNC_Static);
+    FString Connector = bIsStatic ? TEXT(".") : TEXT(":");
+    
+    if (!ClassName.IsEmpty())
+    {
+        Code += FString::Printf(TEXT("function %s%s%s(%s) end\n\n"), *ClassName, *Connector, *FunctionName, *ParamList);
+    }
+    else
+    {
+        Code += FString::Printf(TEXT("function %s(%s) end\n\n"), *FunctionName, *ParamList);
+    }
 }
 
 FString FEmmyLuaCodeGenerator::GetPropertyType(const FProperty* Property)

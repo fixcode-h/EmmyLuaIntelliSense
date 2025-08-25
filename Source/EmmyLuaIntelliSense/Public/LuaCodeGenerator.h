@@ -89,7 +89,7 @@ private:
     static void GenerateProperty(const FProperty* Property, FString& Code);
 
     /** 生成函数的Lua代码 */
-    static void GenerateFunction(const UFunction* Function, FString& Code);
+    static void GenerateFunction(const UFunction* Function, FString& Code, const FString& ClassName = "");
 };
 
 #endif // LUACODEGENERATOR_H_INCLUDED
