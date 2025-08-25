@@ -143,7 +143,7 @@ void ULuaExportManager::ExportAll()
             
             SlowTask.EnterProgressFrame(1.0f, FText::FromString(FString::Printf(TEXT("正在导出蓝图: %s"), *AssetData.AssetName.ToString())));
             
-            if (ShouldExportBlueprint(AssetData, true))
+            if (ShouldExportBlueprint(AssetData, false))
             {
                 if (UBlueprint* Blueprint = LoadObject<UBlueprint>(nullptr, *AssetData.ObjectPath.ToString()))
                 {

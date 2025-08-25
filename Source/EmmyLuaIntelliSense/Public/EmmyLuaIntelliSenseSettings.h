@@ -45,7 +45,7 @@ public:
     UPROPERTY(EditAnywhere, config, Category = "Export Settings", 
         meta = (DisplayName = "Export Blueprints", 
                 ToolTip = "Whether to export Blueprint files"))
-    bool bExportBlueprintFiles = true;
+    bool bExportBlueprintFiles = false;
     
     /** 是否启用增量导出 */
     UPROPERTY(EditAnywhere, config, Category = "Export Settings", 
