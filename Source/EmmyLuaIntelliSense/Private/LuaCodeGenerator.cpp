@@ -6,6 +6,7 @@
 #include "Engine/BlueprintGeneratedClass.h"
 #include "Engine/UserDefinedStruct.h"
 #include "Engine/UserDefinedEnum.h"
+#include "Engine/Engine.h"
 #include "Misc/DateTime.h"
 
 FString FEmmyLuaCodeGenerator::GenerateBlueprint(const UBlueprint* Blueprint)
@@ -395,51 +396,13 @@ FString FEmmyLuaCodeGenerator::GetPropertyType(const FProperty* Property)
     {
         return TEXT("any");
     }
+
+    // 对于未知类型，使用 GetCPPType 获取完整的C++类型名称
+    FString PropertyTypeName = Property->GetCPPType();
     
-    // 基本类型映射
-    if (Property->IsA<FBoolProperty>())
+    if (!PropertyTypeName.IsEmpty())
     {
-        return TEXT("boolean");
-    }
-    else if (Property->IsA<FIntProperty>() || Property->IsA<FInt64Property>() || 
-             Property->IsA<FByteProperty>() || Property->IsA<FFloatProperty>() || 
-             Property->IsA<FDoubleProperty>())
-    {
-        return TEXT("number");
-    }
-    else if (Property->IsA<FStrProperty>() || Property->IsA<FNameProperty>() || 
-             Property->IsA<FTextProperty>())
-    {
-        return TEXT("string");
-    }
-    else if (const FObjectProperty* ObjectProp = CastField<FObjectProperty>(Property))
-    {
-        if (ObjectProp->PropertyClass)
-        {
-            return GetTypeName(ObjectProp->PropertyClass);
-        }
-        return TEXT("UObject");
-    }
-    else if (const FStructProperty* StructProp = CastField<FStructProperty>(Property))
-    {
-        if (StructProp->Struct)
-        {
-            return GetTypeName(StructProp->Struct);
-        }
-        return TEXT("table");
-    }
-    else if (const FArrayProperty* ArrayProp = CastField<FArrayProperty>(Property))
-    {
-        FString InnerType = GetPropertyType(ArrayProp->Inner);
-        return FString::Printf(TEXT("%s[]"), *InnerType);
-    }
-    else if (const FEnumProperty* EnumProp = CastField<FEnumProperty>(Property))
-    {
-        if (EnumProp->GetEnum())
-        {
-            return GetTypeName(EnumProp->GetEnum());
-        }
-        return TEXT("number");
+        return PropertyTypeName;
     }
     
     return TEXT("any");
