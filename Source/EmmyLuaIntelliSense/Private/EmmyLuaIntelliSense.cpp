@@ -18,16 +18,11 @@ DEFINE_LOG_CATEGORY(LogEmmyLuaIntelliSense);
 
 void FEmmyLuaIntelliSenseModule::StartupModule()
 {
-	// This code will execute after your module is loaded into memory; the exact timing is specified in the .uplugin file
-	UE_LOG(LogEmmyLuaIntelliSense, Warning, TEXT("=== EmmyLuaIntelliSense module starting up ==="));
-	
 	// 注册插件设置
 	RegisterSettings();
 	
 	// 注册引擎初始化完成后的回调
 	FCoreDelegates::OnPostEngineInit.AddRaw(this, &FEmmyLuaIntelliSenseModule::OnPostEngineInit);
-	
-	UE_LOG(LogEmmyLuaIntelliSense, Warning, TEXT("=== EmmyLuaIntelliSense module startup completed ==="));
 }
 
 void FEmmyLuaIntelliSenseModule::ShutdownModule()
@@ -61,19 +56,16 @@ void FEmmyLuaIntelliSenseModule::OnAssetRegistryFilesLoaded()
 
 void FEmmyLuaIntelliSenseModule::OnPostEngineInit()
 {
-	UE_LOG(LogEmmyLuaIntelliSense, Warning, TEXT("=== OnPostEngineInit called ==="));
-	
 	// 确保在编辑器环境中运行
 	if (!GIsEditor)
 	{
-		UE_LOG(LogEmmyLuaIntelliSense, Warning, TEXT("Not in editor environment, skipping initialization"));
 		return;
 	}
 	
 	// 防止重复初始化
 	if (bIsInitialized)
 	{
-		UE_LOG(LogEmmyLuaIntelliSense, Warning, TEXT("Already initialized, skipping"));
+		UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("Already initialized, skipping"));
 		return;
 	}
 	
@@ -84,22 +76,16 @@ void FEmmyLuaIntelliSenseModule::OnPostEngineInit()
 	// 检查资产注册表是否已经加载完成
 	if (AssetRegistry.IsLoadingAssets())
 	{
-		// 如果还在加载，注册回调等待加载完成
-		UE_LOG(LogEmmyLuaIntelliSense, Warning, TEXT("Asset registry still loading, waiting for completion..."));
 		AssetRegistry.OnFilesLoaded().AddRaw(this, &FEmmyLuaIntelliSenseModule::OnAssetRegistryFilesLoaded);
 	}
 	else
 	{
-		// 如果已经加载完成，直接初始化
-		UE_LOG(LogEmmyLuaIntelliSense, Warning, TEXT("Asset registry already loaded, initializing immediately..."));
 		OnAssetRegistryFilesLoaded();
 	}
 }
 
 void FEmmyLuaIntelliSenseModule::InitializeLuaExportManager()
 {
-	UE_LOG(LogEmmyLuaIntelliSense, Warning, TEXT("=== Initializing Lua Export Manager... ==="));
-	
 	// 设置初始化标志
 	bIsInitialized = true;
 	

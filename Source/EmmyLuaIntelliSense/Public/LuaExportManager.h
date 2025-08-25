@@ -91,13 +91,7 @@ private:
     /** 已导出文件的哈希值缓存 */
     TMap<FString, FString> ExportedFilesHashCache;
 
-    /** 资源注册表事件处理 */
-    void OnAssetAdded(const FAssetData& AssetData);
-    void OnAssetRemoved(const FAssetData& AssetData);
-    void OnAssetRenamed(const FAssetData& AssetData, const FString& OldPath);
-    void OnAssetUpdated(const FAssetData& AssetData);
-
-    void AddToPendingBlueprints(const FAssetData& AssetData);
+    bool AddToPendingBlueprints(const FAssetData& AssetData);
     
     /** 导出单个蓝图 */
     void ExportBlueprint(const UBlueprint* Blueprint);

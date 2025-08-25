@@ -64,13 +64,6 @@ void ULuaExportManager::Initialize(FSubsystemCollectionBase& Collection)
     // 设置输出目录
     OutputDir = GetOutputDirectory();
 
-    // 注册资源注册表事件
-    FAssetRegistryModule& AssetRegistryModule = FModuleManager::LoadModuleChecked<FAssetRegistryModule>(TEXT("AssetRegistry"));
-    AssetRegistryModule.Get().OnAssetAdded().AddUObject(this, &ULuaExportManager::OnAssetAdded);
-    AssetRegistryModule.Get().OnAssetRemoved().AddUObject(this, &ULuaExportManager::OnAssetRemoved);
-    AssetRegistryModule.Get().OnAssetRenamed().AddUObject(this, &ULuaExportManager::OnAssetRenamed);
-    AssetRegistryModule.Get().OnAssetUpdated().AddUObject(this, &ULuaExportManager::OnAssetUpdated);
-
     // 初始化文件监听器
     InitializeFileWatcher();
 
@@ -82,7 +75,7 @@ void ULuaExportManager::Initialize(FSubsystemCollectionBase& Collection)
 
     bInitialized = true;
 
-    UE_LOG(LogEmmyLuaIntelliSense, Warning, TEXT("=== LuaExportManager initialized successfully. Output directory: %s ==="), *OutputDir);
+    UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("=== LuaExportManager initialized successfully. Output directory: %s ==="), *OutputDir);
 }
 
 void ULuaExportManager::Deinitialize()
@@ -93,17 +86,6 @@ void ULuaExportManager::Deinitialize()
     {
         return;
     }
-
-    // 取消注册资源注册表事件
-    if (FModuleManager::Get().IsModuleLoaded(TEXT("AssetRegistry")))
-    {
-        FAssetRegistryModule& AssetRegistryModule = FModuleManager::GetModuleChecked<FAssetRegistryModule>(TEXT("AssetRegistry"));
-        AssetRegistryModule.Get().OnAssetAdded().RemoveAll(this);
-        AssetRegistryModule.Get().OnAssetRemoved().RemoveAll(this);
-        AssetRegistryModule.Get().OnAssetRenamed().RemoveAll(this);
-        AssetRegistryModule.Get().OnAssetUpdated().RemoveAll(this);
-    }
-
     // 停止文件监听器
     ShutdownFileWatcher();
 
@@ -351,71 +333,58 @@ void ULuaExportManager::ClearPendingChanges()
     PendingNativeTypes.Empty();
 }
 
-void ULuaExportManager::OnAssetAdded(const FAssetData& AssetData)
-{
-    // 在初始化完成之前忽略资源注册表事件，避免重复添加
-    if (!bInitialized)
-    {
-        UE_LOG(LogEmmyLuaIntelliSense, VeryVerbose, TEXT("[EVENT] Ignoring OnAssetAdded during initialization: %s"), *AssetData.ObjectPath.ToString());
-        return;
-    }
-    
-    AddToPendingBlueprints(AssetData);
-}
-
-void ULuaExportManager::OnAssetRemoved(const FAssetData& AssetData)
-{
-    if (IsBlueprint(AssetData))
-    {
-        // 删除对应的Lua文件
-        FString FileName = AssetData.AssetName.ToString();
-        DeleteFile(TEXT("/Game"), FileName);
-    }
-}
-
-void ULuaExportManager::OnAssetRenamed(const FAssetData& AssetData, const FString& OldPath)
-{
-    if (IsBlueprint(AssetData))
-    {
-        // 删除旧文件
-        FString OldFileName = FPackageName::GetShortName(OldPath);
-        DeleteFile(TEXT("/Game"), OldFileName);
-        
-        // 添加新文件到待导出列表
-        AddToPendingBlueprints(AssetData);
-    }
-}
-
-void ULuaExportManager::OnAssetUpdated(const FAssetData& AssetData)
-{
-    // 在初始化完成之前忽略资源注册表事件，避免重复添加
-    if (!bInitialized)
-    {
-        UE_LOG(LogEmmyLuaIntelliSense, VeryVerbose, TEXT("[EVENT] Ignoring OnAssetUpdated during initialization: %s"), *AssetData.ObjectPath.ToString());
-        return;
-    }
-    
-    AddToPendingBlueprints(AssetData);
-}
-
-void ULuaExportManager::AddToPendingBlueprints(const FAssetData& AssetData)
+bool ULuaExportManager::AddToPendingBlueprints(const FAssetData& AssetData)
 {
     if (!ShouldExportBlueprint(AssetData))
     {
-        return;
+        return false;
     }
     
     FString AssetPath = AssetData.ObjectPath.ToString();
-    
     // 检查是否已经在待导出列表中，避免重复添加
     if (PendingBlueprints.Contains(AssetPath))
     {
         UE_LOG(LogEmmyLuaIntelliSense, VeryVerbose, TEXT("[PENDING] Blueprint already in pending list, skipping: %s"), *AssetPath);
-        return;
+        return false;
     }
     
+    // 处理蓝图路径格式：/Game/Core/Blueprints/BP_TriggerArea.BP_TriggerArea -> /Game/Core/Blueprints/BP_TriggerArea
+    FString PackageName = AssetPath;
+    int32 LastDotIndex;
+    if (PackageName.FindLastChar('.', LastDotIndex))
+    {
+        FString ClassName = PackageName.Mid(LastDotIndex + 1);
+        FString PathWithoutClass = PackageName.Left(LastDotIndex);
+        
+        // 检查路径末尾是否与类名相同（蓝图的典型格式）
+        if (PathWithoutClass.EndsWith("/" + ClassName))
+        {
+            PackageName = PathWithoutClass;
+            UE_LOG(LogEmmyLuaIntelliSense, VeryVerbose, TEXT("[PATH] Normalized blueprint path: %s -> %s"), *AssetPath, *PackageName);
+        }
+    }
+    
+    FString AssetFilePath;
+    if (!FPackageName::TryConvertLongPackageNameToFilename(PackageName, AssetFilePath, TEXT(".uasset")))
+    {
+        UE_LOG(LogEmmyLuaIntelliSense, VeryVerbose, TEXT("[PATH] Failed to convert package name to file path: %s"), *PackageName);
+        return false;
+    }
+   
+    // 检查文件是否真实存在
+    if (!FPaths::FileExists(AssetFilePath))
+    {
+        return false;
+    }
+    // 使用重载版本的ShouldReexport，直接传入文件路径
+    if (!ShouldReexport(AssetPath, AssetFilePath))
+    {
+        return false;
+    }
     PendingBlueprints.Add(AssetPath);
     UE_LOG(LogEmmyLuaIntelliSense, Verbose, TEXT("[PENDING] Added Blueprint to pending list: %s (Total: %d)"), *AssetPath, PendingBlueprints.Num());
+
+    return true;
 }
 
 void ULuaExportManager::ExportBlueprint(const UBlueprint* Blueprint)
@@ -886,33 +855,9 @@ void ULuaExportManager::ScanExistingAssets()
     UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("[SCAN] Found %d blueprint assets, checking for export..."), BlueprintAssets.Num());
     for (const FAssetData& AssetData : BlueprintAssets)
     {
-        if (ShouldExportBlueprint(AssetData))
-        {
-            FString AssetPath = AssetData.ObjectPath.ToString();
-            
-            // 直接获取完整的文件路径，使用重载版本的ShouldReexport避免重复转换
-              FString AssetFilePath;
-              if (FPackageName::TryConvertLongPackageNameToFilename(AssetPath, AssetFilePath, TEXT(".uasset")))
-              {
-                  UE_LOG(LogEmmyLuaIntelliSense, VeryVerbose, TEXT("[SCAN] Direct file access: %s -> %s"), *AssetPath, *AssetFilePath);
-                  
-                  // 使用重载版本的ShouldReexport，直接传入文件路径
-                  if (ShouldReexport(AssetPath, AssetFilePath))
-                  {
-                      AddToPendingBlueprints(AssetData);
-                      UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("[SCAN] Added Blueprint to pending list: %s"), *AssetPath);
-                  }
-                  else
-                  {
-                      UE_LOG(LogEmmyLuaIntelliSense, Verbose, TEXT("[SCAN] Blueprint up-to-date, skipping: %s"), *AssetPath);
-                  }
-              }
-              else
-              {
-                  UE_LOG(LogEmmyLuaIntelliSense, Warning, TEXT("[SCAN] Failed to convert package name to file path: %s"), *AssetPath);
-              }
-        }
+        AddToPendingBlueprints(AssetData);
     }
+    UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("[SCAN] Wait To Export Count %d "), PendingBlueprints.Num());
     
     // 扫描原生类型
     TArray<const UField*> NativeTypes;
@@ -1107,7 +1052,6 @@ bool ULuaExportManager::ShouldReexport(const FString& AssetPath, const FDateTime
         FString AssetHash = GetAssetHash(AssetPath);
         if (AssetHash.IsEmpty())
         {
-            UE_LOG(LogEmmyLuaIntelliSense, Warning, TEXT("[REEXPORT] Failed to get hash for %s, will export"), *AssetPath);
             return true;
         }
         
@@ -1120,8 +1064,6 @@ bool ULuaExportManager::ShouldReexport(const FString& AssetPath, const FDateTime
         
         if (!CachedTime)
         {
-            // 没有缓存记录，需要导出
-            UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("[REEXPORT] No cache found for %s, will export"), *AssetPath);
             return true;
         }
         
@@ -1150,7 +1092,7 @@ bool ULuaExportManager::ShouldReexport(const FString& AssetPath, const FString& 
         FString AssetHash = CalculateFileHash(AssetFilePath);
         if (AssetHash.IsEmpty())
         {
-            UE_LOG(LogEmmyLuaIntelliSense, Warning, TEXT("[REEXPORT] Failed to get hash for file %s (asset: %s), will export"), *AssetFilePath, *AssetPath);
+            UE_LOG(LogEmmyLuaIntelliSense, VeryVerbose, TEXT("[REEXPORT] Failed to get hash for file %s (asset: %s), will export"), *AssetFilePath, *AssetPath);
             return true;
         }
         
@@ -1162,7 +1104,6 @@ bool ULuaExportManager::ShouldReexport(const FString& AssetPath, const FString& 
         FDateTime AssetModifyTime = IFileManager::Get().GetTimeStamp(*AssetFilePath);
         if (AssetModifyTime == FDateTime::MinValue())
         {
-            UE_LOG(LogEmmyLuaIntelliSense, Warning, TEXT("[REEXPORT] Failed to get modify time for file %s (asset: %s), will export"), *AssetFilePath, *AssetPath);
             return true;
         }
         
@@ -1170,19 +1111,19 @@ bool ULuaExportManager::ShouldReexport(const FString& AssetPath, const FString& 
         
         if (!CachedTime)
         {
-            // 没有缓存记录，需要导出
-            UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("[REEXPORT] No cache found for %s, will export"), *AssetPath);
             return true;
         }
         
         // 比较修改时间
         bool bShouldReexport = AssetModifyTime > *CachedTime;
-        UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("[REEXPORT] %s: Asset time=%s, Cache time=%s, Should reexport=%s"), 
-            *AssetPath, 
-            *AssetModifyTime.ToString(), 
-            *CachedTime->ToString(), 
-            bShouldReexport ? TEXT("YES") : TEXT("NO"));
-        
+        if (bShouldReexport)
+        {
+            UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("[REEXPORT] %s: Asset time=%s, Cache time=%s, Should reexport=%s"), 
+                *AssetPath, 
+                *AssetModifyTime.ToString(), 
+                *CachedTime->ToString(), 
+                bShouldReexport ? TEXT("YES") : TEXT("NO"));
+        }
         return bShouldReexport;
     }
 }
@@ -1267,10 +1208,26 @@ bool ULuaExportManager::IsValidFieldForExport(const UField* Field, FString& OutF
 FDateTime ULuaExportManager::GetAssetModifyTime(const FString& AssetPath) const
 {
     // 对于蓝图资源，获取.uasset文件的修改时间
-    // 处理 /Game/ 路径下的资源
-    if (AssetPath.StartsWith(TEXT("/Game/")))
+    // 处理蓝图路径格式：/Game/Core/Blueprints/BP_TriggerArea.BP_TriggerArea -> /Game/Core/Blueprints/BP_TriggerArea
+    FString NormalizedAssetPath = AssetPath;
+    int32 LastDotIndex;
+    if (NormalizedAssetPath.FindLastChar('.', LastDotIndex))
     {
-        FString PackageName = AssetPath.RightChop(6); // 移除 "/Game/"
+        FString ClassName = NormalizedAssetPath.Mid(LastDotIndex + 1);
+        FString PathWithoutClass = NormalizedAssetPath.Left(LastDotIndex);
+        
+        // 检查路径末尾是否与类名相同（蓝图的典型格式）
+        if (PathWithoutClass.EndsWith("/" + ClassName))
+        {
+            NormalizedAssetPath = PathWithoutClass;
+            UE_LOG(LogEmmyLuaIntelliSense, VeryVerbose, TEXT("[TIMESTAMP] Normalized blueprint path: %s -> %s"), *AssetPath, *NormalizedAssetPath);
+        }
+    }
+    
+    // 处理 /Game/ 路径下的资源
+    if (NormalizedAssetPath.StartsWith(TEXT("/Game/")))
+    {
+        FString PackageName = NormalizedAssetPath.RightChop(6); // 移除 "/Game/"
         FString AssetFilePath = FPaths::Combine(FPaths::ProjectContentDir(), PackageName + TEXT(".uasset"));
         
         UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("[TIMESTAMP] Checking Game Blueprint file: %s -> %s"), *AssetPath, *AssetFilePath);
@@ -1287,10 +1244,10 @@ FDateTime ULuaExportManager::GetAssetModifyTime(const FString& AssetPath) const
         }
     }
     // 处理插件路径下的资源（如 /PluginName/...）
-    else if (AssetPath.StartsWith(TEXT("/")) && AssetPath.Contains(TEXT("/")))
+    else if (NormalizedAssetPath.StartsWith(TEXT("/")) && NormalizedAssetPath.Contains(TEXT("/")))
     {
         // 尝试通过包管理器找到实际的文件路径
-        FString PackageName = AssetPath;
+        FString PackageName = NormalizedAssetPath;
         FString AssetFilePath;
         
         // 尝试通过 FPackageName 转换为文件路径
@@ -1420,10 +1377,26 @@ FString ULuaExportManager::CalculateFileHash(const FString& FilePath) const
 FString ULuaExportManager::GetAssetHash(const FString& AssetPath) const
 {
     // 对于蓝图资源，计算.uasset文件的哈希值
-    // 处理 /Game/ 路径下的资源
-    if (AssetPath.StartsWith(TEXT("/Game/")))
+    // 处理蓝图路径格式：/Game/Core/Blueprints/BP_TriggerArea.BP_TriggerArea -> /Game/Core/Blueprints/BP_TriggerArea
+    FString NormalizedAssetPath = AssetPath;
+    int32 LastDotIndex;
+    if (NormalizedAssetPath.FindLastChar('.', LastDotIndex))
     {
-        FString PackageName = AssetPath.RightChop(6); // 移除 "/Game/"
+        FString ClassName = NormalizedAssetPath.Mid(LastDotIndex + 1);
+        FString PathWithoutClass = NormalizedAssetPath.Left(LastDotIndex);
+        
+        // 检查路径末尾是否与类名相同（蓝图的典型格式）
+        if (PathWithoutClass.EndsWith("/" + ClassName))
+        {
+            NormalizedAssetPath = PathWithoutClass;
+            UE_LOG(LogEmmyLuaIntelliSense, VeryVerbose, TEXT("[HASH] Normalized blueprint path: %s -> %s"), *AssetPath, *NormalizedAssetPath);
+        }
+    }
+    
+    // 处理 /Game/ 路径下的资源
+    if (NormalizedAssetPath.StartsWith(TEXT("/Game/")))
+    {
+        FString PackageName = NormalizedAssetPath.RightChop(6); // 移除 "/Game/"
         FString AssetFilePath = FPaths::Combine(FPaths::ProjectContentDir(), PackageName + TEXT(".uasset"));
         
         UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("[HASH] Calculating hash for Game Blueprint file: %s -> %s"), *AssetPath, *AssetFilePath);
@@ -1441,10 +1414,10 @@ FString ULuaExportManager::GetAssetHash(const FString& AssetPath) const
         return Hash;
     }
     // 处理插件路径下的资源（如 /PluginName/...）
-    else if (AssetPath.StartsWith(TEXT("/")) && AssetPath.Contains(TEXT("/")))
+    else if (NormalizedAssetPath.StartsWith(TEXT("/")) && NormalizedAssetPath.Contains(TEXT("/")))
     {
         // 尝试通过包管理器找到实际的文件路径
-        FString PackageName = AssetPath;
+        FString PackageName = NormalizedAssetPath;
         FString AssetFilePath;
         
         // 尝试通过 FPackageName 转换为文件路径
