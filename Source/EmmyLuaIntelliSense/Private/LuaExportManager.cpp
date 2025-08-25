@@ -509,6 +509,22 @@ void ULuaExportManager::CollectNativeTypes(TArray<const UField*>& Types)
             continue;
         }
         
+        // 确保只收集C++原生类，排除蓝图生成的类
+        if (!Class->HasAnyClassFlags(CLASS_Native))
+        {
+            continue;
+        }
+        
+        // 跳过特定的基类或中间类（如 SKEL_、REINST_ 等）
+        if (ClassName.StartsWith(TEXT("SKEL_")) || 
+            ClassName.StartsWith(TEXT("REINST_")) ||
+            ClassName.StartsWith(TEXT("TRASHCLASS_")) ||
+            ClassName.StartsWith(TEXT("HOTRELOADED_")) ||
+            ClassName.StartsWith(TEXT("PLACEHOLDER_")))
+        {
+            continue;
+        }
+        
         if (FEmmyLuaCodeGenerator::ShouldSkipType(Class))
         {
             continue;
@@ -526,6 +542,22 @@ void ULuaExportManager::CollectNativeTypes(TArray<const UField*>& Types)
             continue;
         }
         
+        // 确保只收集C++原生结构体，排除蓝图生成的结构体
+        if (!Struct->IsNative())
+        {
+            continue;
+        }
+        
+        // 跳过特定的基类或中间结构体
+        if (StructName.StartsWith(TEXT("SKEL_")) || 
+            StructName.StartsWith(TEXT("REINST_")) ||
+            StructName.StartsWith(TEXT("TRASHCLASS_")) ||
+            StructName.StartsWith(TEXT("HOTRELOADED_")) ||
+            StructName.StartsWith(TEXT("PLACEHOLDER_")))
+        {
+            continue;
+        }
+        
         if (FEmmyLuaCodeGenerator::ShouldSkipType(Struct))
         {
             continue;
@@ -539,6 +571,22 @@ void ULuaExportManager::CollectNativeTypes(TArray<const UField*>& Types)
         const UEnum* Enum = *It;
         FString EnumName;
         if (!IsValidFieldForExport(Enum, EnumName))
+        {
+            continue;
+        }
+        
+        // 确保只收集C++原生枚举，排除蓝图生成的枚举
+        if (!Enum->IsNative())
+        {
+            continue;
+        }
+        
+        // 跳过特定的基类或中间枚举
+        if (EnumName.StartsWith(TEXT("SKEL_")) || 
+            EnumName.StartsWith(TEXT("REINST_")) ||
+            EnumName.StartsWith(TEXT("TRASHCLASS_")) ||
+            EnumName.StartsWith(TEXT("HOTRELOADED_")) ||
+            EnumName.StartsWith(TEXT("PLACEHOLDER_")))
         {
             continue;
         }
