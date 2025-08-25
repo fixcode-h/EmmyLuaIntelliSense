@@ -842,21 +842,25 @@ void ULuaExportManager::CheckNativeTypesChanges()
 void ULuaExportManager::ScanExistingAssets()
 {
     // 扫描现有的蓝图资源
-    FAssetRegistryModule& AssetRegistryModule = FModuleManager::LoadModuleChecked<FAssetRegistryModule>(TEXT("AssetRegistry"));
-    TArray<FAssetData> BlueprintAssets;
-    
-    // 获取所有蓝图资源
-    FARFilter Filter;
-    Filter.ClassNames.Add(UBlueprint::StaticClass()->GetFName());
-    AssetRegistryModule.Get().GetAssets(Filter, BlueprintAssets);
-    
-    // 添加蓝图到待导出列表（只添加需要重新导出的）
-    UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("[SCAN] Found %d blueprint assets, checking for export..."), BlueprintAssets.Num());
-    for (const FAssetData& AssetData : BlueprintAssets)
+    const UEmmyLuaIntelliSenseSettings* Settings = UEmmyLuaIntelliSenseSettings::Get();
+    if (Settings && Settings->bExportBlueprintFiles)
     {
-        AddToPendingBlueprints(AssetData);
+        FAssetRegistryModule& AssetRegistryModule = FModuleManager::LoadModuleChecked<FAssetRegistryModule>(TEXT("AssetRegistry"));
+        TArray<FAssetData> BlueprintAssets;
+        
+        // 获取所有蓝图资源
+        FARFilter Filter;
+        Filter.ClassNames.Add(UBlueprint::StaticClass()->GetFName());
+        AssetRegistryModule.Get().GetAssets(Filter, BlueprintAssets);
+        
+        // 添加蓝图到待导出列表（只添加需要重新导出的）
+        UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("[SCAN] Found %d blueprint assets, checking for export..."), BlueprintAssets.Num());
+        for (const FAssetData& AssetData : BlueprintAssets)
+        {
+            AddToPendingBlueprints(AssetData);
+        }
+        UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("[SCAN] Wait To Export Count %d "), PendingBlueprints.Num());
     }
-    UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("[SCAN] Wait To Export Count %d "), PendingBlueprints.Num());
     
     // 扫描原生类型
     TArray<const UField*> NativeTypes;
