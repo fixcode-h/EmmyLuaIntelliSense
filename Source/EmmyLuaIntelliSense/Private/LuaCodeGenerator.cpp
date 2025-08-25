@@ -114,10 +114,10 @@ FString FEmmyLuaCodeGenerator::GenerateClass(const UClass* Class)
         }
     }
     
-    Result += FString::Printf(TEXT("local %s = {}\n\n"), *ClassName);
-    
-    // 生成属性
+    // 生成属性（紧跟在类声明后面）
     GenerateClassProperties(Class, Result);
+    
+    Result += FString::Printf(TEXT("local %s = {}\n\n"), *ClassName);
     
     // 生成函数
     GenerateClassFunctions(Class, Result);
@@ -160,9 +160,7 @@ FString FEmmyLuaCodeGenerator::GenerateStruct(const UScriptStruct* Struct)
         Result += FString::Printf(TEXT("---@class %s\n"), *StructName);
     }
     
-    Result += FString::Printf(TEXT("local %s = {}\n\n"), *StructName);
-    
-    // 生成属性
+    // 生成属性（紧跟在类声明后面）
     for (TFieldIterator<FProperty> PropertyIt(Struct); PropertyIt; ++PropertyIt)
     {
         FProperty* Property = *PropertyIt;
@@ -173,6 +171,8 @@ FString FEmmyLuaCodeGenerator::GenerateStruct(const UScriptStruct* Struct)
         
         GenerateProperty(Property, Result);
     }
+    
+    Result += FString::Printf(TEXT("local %s = {}\n\n"), *StructName);
     
     Result += FString::Printf(TEXT("\nreturn %s\n"), *StructName);
     
@@ -217,7 +217,7 @@ FString FEmmyLuaCodeGenerator::GenerateEnum(const UEnum* Enum)
         FString EnumValueName = Enum->GetNameStringByIndex(i);
         int64 EnumValue = Enum->GetValueByIndex(i);
         
-        Result += FString::Printf(TEXT("---@field public %s integer\n"), 
+        Result += FString::Printf(TEXT("---@field %s integer\n"), 
             *EscapeSymbolName(EnumValueName));
     }
     
@@ -477,6 +477,13 @@ FString FEmmyLuaCodeGenerator::GetTypeName(const UField* Field)
 FString FEmmyLuaCodeGenerator::EscapeComments(const FString& Comment)
 {
     FString Result = Comment;
+    
+    // 移除C++风格的注释符号
+    Result = Result.Replace(TEXT("/**"), TEXT(""));
+    Result = Result.Replace(TEXT("*/"), TEXT(""));
+    Result = Result.Replace(TEXT("/*"), TEXT(""));
+    Result = Result.Replace(TEXT("//"), TEXT(""));
+    Result = Result.Replace(TEXT("*"), TEXT(""));
     
     // 转义注释中的特殊字符
     Result = Result.Replace(TEXT("\n"), TEXT(" "));
