@@ -526,14 +526,11 @@ FString FEmmyLuaCodeGenerator::GetPropertyType(const FProperty* Property)
         }
         return TEXT("FStructProperty");
     }
-
-    // 委托类型
-    if (CastField<FDelegateProperty>(Property))
-        return TEXT("Delegate");
-
-    if (CastField<FMulticastDelegateProperty>(Property))
-        return TEXT("MulticastDelegate");
-
+    FString PropertyTypeName = Property->GetCPPType();
+    if (!PropertyTypeName.IsEmpty())
+    {
+        return PropertyTypeName;
+    }
     return TEXT("any");
 }
 
