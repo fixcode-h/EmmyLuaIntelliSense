@@ -397,14 +397,143 @@ FString FEmmyLuaCodeGenerator::GetPropertyType(const FProperty* Property)
         return TEXT("any");
     }
 
-    // 对于未知类型，使用 GetCPPType 获取完整的C++类型名称
-    FString PropertyTypeName = Property->GetCPPType();
-    
-    if (!PropertyTypeName.IsEmpty())
+    // 基础数值类型 - 参考UnLua实现
+    if (CastField<FByteProperty>(Property))
+        return TEXT("integer");
+
+    if (CastField<FInt8Property>(Property))
+        return TEXT("integer");
+
+    if (CastField<FInt16Property>(Property))
+        return TEXT("integer");
+
+    if (CastField<FIntProperty>(Property))
+        return TEXT("integer");
+
+    if (CastField<FInt64Property>(Property))
+        return TEXT("integer");
+
+    if (CastField<FUInt16Property>(Property))
+        return TEXT("integer");
+
+    if (CastField<FUInt32Property>(Property))
+        return TEXT("integer");
+
+    if (CastField<FUInt64Property>(Property))
+        return TEXT("integer");
+
+    if (CastField<FFloatProperty>(Property))
+        return TEXT("number");
+
+    if (CastField<FDoubleProperty>(Property))
+        return TEXT("number");
+
+    if (CastField<FBoolProperty>(Property))
+        return TEXT("boolean");
+
+    // 字符串类型
+    if (CastField<FNameProperty>(Property))
+        return TEXT("string");
+
+    if (CastField<FStrProperty>(Property))
+        return TEXT("string");
+
+    if (CastField<FTextProperty>(Property))
+        return TEXT("string");
+
+    // 枚举类型
+    if (const FEnumProperty* EnumProperty = CastField<FEnumProperty>(Property))
     {
-        return PropertyTypeName;
+        if (EnumProperty->GetEnum())
+        {
+            return EnumProperty->GetEnum()->GetName();
+        }
+        return TEXT("integer");
     }
-    
+
+    // 类类型
+    if (const FClassProperty* ClassProperty = CastField<FClassProperty>(Property))
+    {
+        const UClass* Class = ClassProperty->MetaClass;
+        return FString::Printf(TEXT("TSubclassOf<%s%s>"), Class->GetPrefixCPP(), *Class->GetName());
+    }
+
+    // 软引用类型
+    if (const FSoftObjectProperty* SoftObjectProperty = CastField<FSoftObjectProperty>(Property))
+    {
+        const UClass* Class = SoftObjectProperty->PropertyClass;
+        return FString::Printf(TEXT("TSoftObjectPtr<%s%s>"), Class->GetPrefixCPP(), *Class->GetName());
+    }
+
+    // 对象类型
+    if (const FObjectProperty* ObjectProperty = CastField<FObjectProperty>(Property))
+    {
+        const UClass* Class = ObjectProperty->PropertyClass;
+        if (Cast<UBlueprintGeneratedClass>(Class))
+        {
+            return FString::Printf(TEXT("%s"), *Class->GetName());
+        }
+        return FString::Printf(TEXT("%s%s"), Class->GetPrefixCPP(), *Class->GetName());
+    }
+
+    // 弱引用类型
+    if (const FWeakObjectProperty* WeakObjectProperty = CastField<FWeakObjectProperty>(Property))
+    {
+        const UClass* Class = WeakObjectProperty->PropertyClass;
+        return FString::Printf(TEXT("TWeakObjectPtr<%s%s>"), Class->GetPrefixCPP(), *Class->GetName());
+    }
+
+    // 延迟引用类型
+    if (const FLazyObjectProperty* LazyObjectProperty = CastField<FLazyObjectProperty>(Property))
+    {
+        const UClass* Class = LazyObjectProperty->PropertyClass;
+        return FString::Printf(TEXT("TLazyObjectPtr<%s%s>"), Class->GetPrefixCPP(), *Class->GetName());
+    }
+
+    // 接口类型
+    if (const FInterfaceProperty* InterfaceProperty = CastField<FInterfaceProperty>(Property))
+    {
+        const UClass* Class = InterfaceProperty->InterfaceClass;
+        return FString::Printf(TEXT("TScriptInterface<%s%s>"), Class->GetPrefixCPP(), *Class->GetName());
+    }
+
+    // 容器类型
+    if (const FArrayProperty* ArrayProperty = CastField<FArrayProperty>(Property))
+    {
+        const FProperty* Inner = ArrayProperty->Inner;
+        return FString::Printf(TEXT("TArray<%s>"), *GetPropertyType(Inner));
+    }
+
+    if (const FMapProperty* MapProperty = CastField<FMapProperty>(Property))
+    {
+        const FProperty* KeyProp = MapProperty->KeyProp;
+        const FProperty* ValueProp = MapProperty->ValueProp;
+        return FString::Printf(TEXT("TMap<%s, %s>"), *GetPropertyType(KeyProp), *GetPropertyType(ValueProp));
+    }
+
+    if (const FSetProperty* SetProperty = CastField<FSetProperty>(Property))
+    {
+        const FProperty* ElementProp = SetProperty->ElementProp;
+        return FString::Printf(TEXT("TSet<%s>"), *GetPropertyType(ElementProp));
+    }
+
+    // 结构体类型
+    if (const FStructProperty* StructProperty = CastField<FStructProperty>(Property))
+    {
+        if (StructProperty->Struct)
+        {
+            return StructProperty->Struct->GetStructCPPName();
+        }
+        return TEXT("FStructProperty");
+    }
+
+    // 委托类型
+    if (CastField<FDelegateProperty>(Property))
+        return TEXT("Delegate");
+
+    if (CastField<FMulticastDelegateProperty>(Property))
+        return TEXT("MulticastDelegate");
+
     return TEXT("any");
 }
 
@@ -412,41 +541,46 @@ FString FEmmyLuaCodeGenerator::GetTypeName(const UField* Field)
 {
     if (!Field)
     {
-        UE_LOG(LogEmmyLuaIntelliSense, Warning, TEXT("GetTypeName: Field is null"));
-        return TEXT("Unknown");
+        return TEXT("");
     }
     
-    // 检查Field是否有效
-    if (!IsValid(Field))
+    // 完全匹配UnLua的GetTypeName实现
+    FString FieldName = Field->GetName();
+    if (!Field->IsNative() && FieldName.EndsWith(TEXT("_C")))
     {
-        UE_LOG(LogEmmyLuaIntelliSense, Warning, TEXT("GetTypeName: Field is not valid"));
-        return TEXT("Invalid");
-    }
-    
-    try
-    {
-        // 匹配UnLua的GetTypeName实现
-        FString FieldName = Field->GetName();
-        if (!Field->IsNative() && FieldName.EndsWith("_C"))
-        {
-            return FieldName;
-        }
-        
-        const UStruct* Struct = Cast<UStruct>(Field);
-        if (Struct && IsValid(Struct))
-        {
-            FString Prefix = Struct->GetPrefixCPP();
-            FString StructName = Struct->GetName();
-            return Prefix + StructName;
-        }
-        
         return FieldName;
     }
-    catch (...)
+    
+    const UStruct* Struct = Cast<UStruct>(Field);
+    if (Struct)
     {
-        UE_LOG(LogEmmyLuaIntelliSense, Error, TEXT("GetTypeName: Exception occurred while processing field"));
-        return TEXT("Error");
+        return Struct->GetPrefixCPP() + Struct->GetName();
     }
+    
+    return FieldName;
+}
+
+FString FEmmyLuaCodeGenerator::GetTypeName(const UObject* Object)
+{
+    if (!Object)
+    {
+        return TEXT("");
+    }
+    
+    // 完全匹配UnLua的GetTypeName(UObject*)实现
+    FString ObjectName = Object->GetName();
+    if (!Object->IsNative() && ObjectName.EndsWith(TEXT("_C")))
+    {
+        return ObjectName;
+    }
+    
+    const UStruct* Struct = Cast<UStruct>(Object);
+    if (Struct)
+    {
+        return Struct->GetPrefixCPP() + Struct->GetName();
+    }
+    
+    return ObjectName;
 }
 
 FString FEmmyLuaCodeGenerator::EscapeComments(const FString& Comment)
