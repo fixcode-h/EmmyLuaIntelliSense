@@ -498,7 +498,10 @@ FString FEmmyLuaCodeGenerator::GetTypeName(const FProperty* Property)
         if (((FSoftObjectProperty*)Property)->PropertyClass->IsChildOf(UClass::StaticClass()))
         {
             const UClass* Class = ((FSoftClassProperty*)Property)->MetaClass;
-            return FString::Printf(TEXT("TSoftClassPtr<%s%s>"), Class->GetPrefixCPP(), *Class->GetName());
+            if (Class)
+            {
+                return FString::Printf(TEXT("TSoftClassPtr<%s%s>"), Class->GetPrefixCPP(), *Class->GetName());
+            }
         }
         const UClass* Class = ((FSoftObjectProperty*)Property)->PropertyClass;
         return FString::Printf(TEXT("TSoftObjectPtr<%s%s>"), Class->GetPrefixCPP(), *Class->GetName());
