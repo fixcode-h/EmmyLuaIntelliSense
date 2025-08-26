@@ -46,6 +46,8 @@ public:
 
     /** 获取类型名称 */
     static FString GetTypeName(const UObject* Object);
+
+    static FString GetTypeName(const FProperty* Property);
     
     /** 获取字段类型名称 */
     static FString GetTypeName(const UField* Field);

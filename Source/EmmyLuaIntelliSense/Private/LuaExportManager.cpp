@@ -493,6 +493,9 @@ void ULuaExportManager::ExportUETypes(const TArray<const UField*>& Types)
     {
         SaveFile(TEXT(""), TEXT("UnLua"), UnLuaCode);
     }
+    
+    // 拷贝UELib文件夹到输出目录
+    CopyUELibFolder();
 }
 
 void ULuaExportManager::CollectNativeTypes(TArray<const UField*>& Types)
@@ -1576,4 +1579,93 @@ bool ULuaExportManager::ShouldExcludeFromExport(const FString& AssetPath) const
     
     UE_LOG(LogEmmyLuaIntelliSense, VeryVerbose, TEXT("[EXCLUDE] Path allowed: %s"), *AssetPath);
     return false;
+}
+
+void ULuaExportManager::CopyUELibFolder() const
+{
+    // 获取插件的UELib源目录
+    TSharedPtr<IPlugin> Plugin = IPluginManager::Get().FindPlugin(TEXT("EmmyLuaIntelliSense"));
+    if (!Plugin.IsValid())
+    {
+        UE_LOG(LogEmmyLuaIntelliSense, Error, TEXT("[COPY_UELIB] Failed to find EmmyLuaIntelliSense plugin"));
+        return;
+    }
+    
+    FString PluginDir = Plugin->GetBaseDir();
+    FString SourceUELibDir = FPaths::Combine(PluginDir, TEXT("Resources"), TEXT("UELib"));
+    FString TargetUELibDir = FPaths::Combine(OutputDir, TEXT("UELib"));
+    
+    // 检查源目录是否存在
+    IPlatformFile& PlatformFile = FPlatformFileManager::Get().GetPlatformFile();
+    if (!PlatformFile.DirectoryExists(*SourceUELibDir))
+    {
+        UE_LOG(LogEmmyLuaIntelliSense, Warning, TEXT("[COPY_UELIB] Source UELib directory does not exist: %s"), *SourceUELibDir);
+        return;
+    }
+    
+    // 创建目标目录
+    if (!PlatformFile.DirectoryExists(*TargetUELibDir))
+    {
+        if (!PlatformFile.CreateDirectoryTree(*TargetUELibDir))
+        {
+            UE_LOG(LogEmmyLuaIntelliSense, Error, TEXT("[COPY_UELIB] Failed to create target directory: %s"), *TargetUELibDir);
+            return;
+        }
+    }
+    
+    // 递归拷贝文件夹内容
+    class FUELibCopyVisitor : public IPlatformFile::FDirectoryVisitor
+    {
+    public:
+        FString SourceDir;
+        FString TargetDir;
+        IPlatformFile* PlatformFile;
+        int32 CopiedFiles;
+        
+        FUELibCopyVisitor(const FString& InSourceDir, const FString& InTargetDir, IPlatformFile* InPlatformFile)
+            : SourceDir(InSourceDir), TargetDir(InTargetDir), PlatformFile(InPlatformFile), CopiedFiles(0)
+        {
+        }
+        
+        virtual bool Visit(const TCHAR* FilenameOrDirectory, bool bIsDirectory) override
+        {
+            FString FullPath(FilenameOrDirectory);
+            FString RelativePath = FullPath.RightChop(SourceDir.Len() + 1); // +1 for the trailing slash
+            FString TargetPath = FPaths::Combine(TargetDir, RelativePath);
+            
+            if (bIsDirectory)
+            {
+                // 创建目录
+                if (!PlatformFile->DirectoryExists(*TargetPath))
+                {
+                    if (!PlatformFile->CreateDirectoryTree(*TargetPath))
+                    {
+                        UE_LOG(LogEmmyLuaIntelliSense, Error, TEXT("[COPY_UELIB] Failed to create directory: %s"), *TargetPath);
+                        return false;
+                    }
+                }
+            }
+            else
+            {
+                // 拷贝文件
+                if (PlatformFile->CopyFile(*TargetPath, *FullPath))
+                {
+                    CopiedFiles++;
+                    UE_LOG(LogEmmyLuaIntelliSense, Verbose, TEXT("[COPY_UELIB] Copied file: %s -> %s"), *FullPath, *TargetPath);
+                }
+                else
+                {
+                    UE_LOG(LogEmmyLuaIntelliSense, Error, TEXT("[COPY_UELIB] Failed to copy file: %s -> %s"), *FullPath, *TargetPath);
+                }
+            }
+            
+            return true;
+        }
+    };
+    
+    FUELibCopyVisitor CopyVisitor(SourceUELibDir, TargetUELibDir, &PlatformFile);
+    PlatformFile.IterateDirectoryRecursively(*SourceUELibDir, CopyVisitor);
+    
+    UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("[COPY_UELIB] Successfully copied UELib folder from %s to %s (%d files)"), 
+        *SourceUELibDir, *TargetUELibDir, CopyVisitor.CopiedFiles);
 }

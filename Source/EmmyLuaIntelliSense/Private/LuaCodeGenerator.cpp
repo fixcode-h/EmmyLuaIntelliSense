@@ -396,142 +396,8 @@ FString FEmmyLuaCodeGenerator::GetPropertyType(const FProperty* Property)
     {
         return TEXT("any");
     }
-
-    // 基础数值类型 - 参考UnLua实现
-    if (CastField<FByteProperty>(Property))
-        return TEXT("integer");
-
-    if (CastField<FInt8Property>(Property))
-        return TEXT("integer");
-
-    if (CastField<FInt16Property>(Property))
-        return TEXT("integer");
-
-    if (CastField<FIntProperty>(Property))
-        return TEXT("integer");
-
-    if (CastField<FInt64Property>(Property))
-        return TEXT("integer");
-
-    if (CastField<FUInt16Property>(Property))
-        return TEXT("integer");
-
-    if (CastField<FUInt32Property>(Property))
-        return TEXT("integer");
-
-    if (CastField<FUInt64Property>(Property))
-        return TEXT("integer");
-
-    if (CastField<FFloatProperty>(Property))
-        return TEXT("number");
-
-    if (CastField<FDoubleProperty>(Property))
-        return TEXT("number");
-
-    if (CastField<FBoolProperty>(Property))
-        return TEXT("boolean");
-
-    // 字符串类型
-    if (CastField<FNameProperty>(Property))
-        return TEXT("string");
-
-    if (CastField<FStrProperty>(Property))
-        return TEXT("string");
-
-    if (CastField<FTextProperty>(Property))
-        return TEXT("string");
-
-    // 枚举类型
-    if (const FEnumProperty* EnumProperty = CastField<FEnumProperty>(Property))
-    {
-        if (EnumProperty->GetEnum())
-        {
-            return EnumProperty->GetEnum()->GetName();
-        }
-        return TEXT("integer");
-    }
-
-    // 类类型
-    if (const FClassProperty* ClassProperty = CastField<FClassProperty>(Property))
-    {
-        const UClass* Class = ClassProperty->MetaClass;
-        return FString::Printf(TEXT("TSubclassOf<%s%s>"), Class->GetPrefixCPP(), *Class->GetName());
-    }
-
-    // 软引用类型
-    if (const FSoftObjectProperty* SoftObjectProperty = CastField<FSoftObjectProperty>(Property))
-    {
-        const UClass* Class = SoftObjectProperty->PropertyClass;
-        return FString::Printf(TEXT("TSoftObjectPtr<%s%s>"), Class->GetPrefixCPP(), *Class->GetName());
-    }
-
-    // 对象类型
-    if (const FObjectProperty* ObjectProperty = CastField<FObjectProperty>(Property))
-    {
-        const UClass* Class = ObjectProperty->PropertyClass;
-        if (Cast<UBlueprintGeneratedClass>(Class))
-        {
-            return FString::Printf(TEXT("%s"), *Class->GetName());
-        }
-        return FString::Printf(TEXT("%s%s"), Class->GetPrefixCPP(), *Class->GetName());
-    }
-
-    // 弱引用类型
-    if (const FWeakObjectProperty* WeakObjectProperty = CastField<FWeakObjectProperty>(Property))
-    {
-        const UClass* Class = WeakObjectProperty->PropertyClass;
-        return FString::Printf(TEXT("TWeakObjectPtr<%s%s>"), Class->GetPrefixCPP(), *Class->GetName());
-    }
-
-    // 延迟引用类型
-    if (const FLazyObjectProperty* LazyObjectProperty = CastField<FLazyObjectProperty>(Property))
-    {
-        const UClass* Class = LazyObjectProperty->PropertyClass;
-        return FString::Printf(TEXT("TLazyObjectPtr<%s%s>"), Class->GetPrefixCPP(), *Class->GetName());
-    }
-
-    // 接口类型
-    if (const FInterfaceProperty* InterfaceProperty = CastField<FInterfaceProperty>(Property))
-    {
-        const UClass* Class = InterfaceProperty->InterfaceClass;
-        return FString::Printf(TEXT("TScriptInterface<%s%s>"), Class->GetPrefixCPP(), *Class->GetName());
-    }
-
-    // 容器类型
-    if (const FArrayProperty* ArrayProperty = CastField<FArrayProperty>(Property))
-    {
-        const FProperty* Inner = ArrayProperty->Inner;
-        return FString::Printf(TEXT("TArray<%s>"), *GetPropertyType(Inner));
-    }
-
-    if (const FMapProperty* MapProperty = CastField<FMapProperty>(Property))
-    {
-        const FProperty* KeyProp = MapProperty->KeyProp;
-        const FProperty* ValueProp = MapProperty->ValueProp;
-        return FString::Printf(TEXT("TMap<%s, %s>"), *GetPropertyType(KeyProp), *GetPropertyType(ValueProp));
-    }
-
-    if (const FSetProperty* SetProperty = CastField<FSetProperty>(Property))
-    {
-        const FProperty* ElementProp = SetProperty->ElementProp;
-        return FString::Printf(TEXT("TSet<%s>"), *GetPropertyType(ElementProp));
-    }
-
-    // 结构体类型
-    if (const FStructProperty* StructProperty = CastField<FStructProperty>(Property))
-    {
-        if (StructProperty->Struct)
-        {
-            return StructProperty->Struct->GetStructCPPName();
-        }
-        return TEXT("FStructProperty");
-    }
-    FString PropertyTypeName = Property->GetCPPType();
-    if (!PropertyTypeName.IsEmpty())
-    {
-        return PropertyTypeName;
-    }
-    return TEXT("any");
+    
+    return GetTypeName(Property);
 }
 
 FString FEmmyLuaCodeGenerator::GetTypeName(const UField* Field)
@@ -578,6 +444,132 @@ FString FEmmyLuaCodeGenerator::GetTypeName(const UObject* Object)
     }
     
     return ObjectName;
+}
+
+FString FEmmyLuaCodeGenerator::GetTypeName(const FProperty* Property)
+{
+    if (!Property)
+        return "any";
+
+    if (CastField<FByteProperty>(Property))
+        return "integer";
+
+    if (CastField<FInt8Property>(Property))
+        return "integer";
+
+    if (CastField<FInt16Property>(Property))
+        return "integer";
+
+    if (CastField<FIntProperty>(Property))
+        return "integer";
+
+    if (CastField<FInt64Property>(Property))
+        return "integer";
+
+    if (CastField<FUInt16Property>(Property))
+        return "integer";
+
+    if (CastField<FUInt32Property>(Property))
+        return "integer";
+
+    if (CastField<FUInt64Property>(Property))
+        return "integer";
+
+    if (CastField<FFloatProperty>(Property))
+        return "number";
+
+    if (CastField<FDoubleProperty>(Property))
+        return "number";
+
+    if (CastField<FEnumProperty>(Property))
+        return ((FEnumProperty*)Property)->GetEnum()->GetName();
+
+    if (CastField<FBoolProperty>(Property))
+        return TEXT("boolean");
+
+    if (CastField<FClassProperty>(Property))
+    {
+        const UClass* Class = ((FClassProperty*)Property)->MetaClass;
+        return FString::Printf(TEXT("TSubclassOf<%s%s>"), Class->GetPrefixCPP(), *Class->GetName());
+    }
+
+    if (CastField<FSoftObjectProperty>(Property))
+    {
+        if (((FSoftObjectProperty*)Property)->PropertyClass->IsChildOf(UClass::StaticClass()))
+        {
+            const UClass* Class = ((FSoftClassProperty*)Property)->MetaClass;
+            return FString::Printf(TEXT("TSoftClassPtr<%s%s>"), Class->GetPrefixCPP(), *Class->GetName());
+        }
+        const UClass* Class = ((FSoftObjectProperty*)Property)->PropertyClass;
+        return FString::Printf(TEXT("TSoftObjectPtr<%s%s>"), Class->GetPrefixCPP(), *Class->GetName());
+    }
+
+    if (CastField<FObjectProperty>(Property))
+    {
+        const UClass* Class = ((FObjectProperty*)Property)->PropertyClass;
+        if (Cast<UBlueprintGeneratedClass>(Class))
+        {
+            return FString::Printf(TEXT("%s"), *Class->GetName());
+        }
+        return FString::Printf(TEXT("%s%s"), Class->GetPrefixCPP(), *Class->GetName());
+    }
+
+    if (CastField<FWeakObjectProperty>(Property))
+    {
+        const UClass* Class = ((FWeakObjectProperty*)Property)->PropertyClass;
+        return FString::Printf(TEXT("TWeakObjectPtr<%s%s>"), Class->GetPrefixCPP(), *Class->GetName());
+    }
+
+    if (CastField<FLazyObjectProperty>(Property))
+    {
+        const UClass* Class = ((FLazyObjectProperty*)Property)->PropertyClass;
+        return FString::Printf(TEXT("TLazyObjectPtr<%s%s>"), Class->GetPrefixCPP(), *Class->GetName());
+    }
+
+    if (CastField<FInterfaceProperty>(Property))
+    {
+        const UClass* Class = ((FInterfaceProperty*)Property)->InterfaceClass;
+        return FString::Printf(TEXT("TScriptInterface<%s%s>"), Class->GetPrefixCPP(), *Class->GetName());
+    }
+
+    if (CastField<FNameProperty>(Property))
+        return "string";
+
+    if (CastField<FStrProperty>(Property))
+        return "string";
+
+    if (CastField<FTextProperty>(Property))
+        return "string";
+
+    if (CastField<FArrayProperty>(Property))
+    {
+        const FProperty* Inner = ((FArrayProperty*)Property)->Inner;
+        return FString::Printf(TEXT("TArray<%s>"), *GetTypeName(Inner));
+    }
+
+    if (CastField<FMapProperty>(Property))
+    {
+        const FProperty* KeyProp = ((FMapProperty*)Property)->KeyProp;
+        const FProperty* ValueProp = ((FMapProperty*)Property)->ValueProp;
+        return FString::Printf(TEXT("TMap<%s, %s>"), *GetTypeName(KeyProp), *GetTypeName(ValueProp));
+    }
+
+    if (CastField<FSetProperty>(Property))
+    {
+        const FProperty* ElementProp = ((FSetProperty*)Property)->ElementProp;
+        return FString::Printf(TEXT("TSet<%s>"), *GetTypeName(ElementProp));
+    }
+
+    if (CastField<FStructProperty>(Property))
+        return ((FStructProperty*)Property)->Struct->GetStructCPPName();
+
+    FString PropertyTypeName = Property->GetCPPType();
+    if (!PropertyTypeName.IsEmpty())
+    {
+        return PropertyTypeName;
+    }
+
+    return "any";
 }
 
 FString FEmmyLuaCodeGenerator::EscapeComments(const FString& Comment)

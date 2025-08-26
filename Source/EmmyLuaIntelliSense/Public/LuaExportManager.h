@@ -176,4 +176,7 @@ private:
 
     /** 从JSON文件加载排除路径列表 */
     void LoadExcludedPathsFromFile(TArray<FString>& OutExcludedPaths) const;
+    
+    /** 拷贝UELib文件夹到输出目录 */
+    void CopyUELibFolder() const;
 };
