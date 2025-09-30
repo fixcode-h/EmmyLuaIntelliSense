@@ -25,7 +25,6 @@
 
 ULuaExportManager::ULuaExportManager()
     : bInitialized(false)
-    , LastNativeTypesCheckTime(0.0)
 {
     
     TSharedPtr<IPlugin> Plugin = IPluginManager::Get().FindPlugin(TEXT("EmmyLuaIntelliSense"));
@@ -62,15 +61,9 @@ void ULuaExportManager::Initialize(FSubsystemCollectionBase& Collection)
     OutputDir = GetOutputDirectory();
 
     
-    LastNativeTypesCheckTime = FPlatformTime::Seconds();
-
-    
     LoadExportCache();
 
     bInitialized = true;
-
-    // 执行一次原生类型检查，检测C++类的结构变化
-    CheckNativeTypesChanges();
 
     UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("=== LuaExportManager initialized successfully. Output directory: %s ==="), *OutputDir);
 }
@@ -90,7 +83,6 @@ void ULuaExportManager::Deinitialize()
     bInitialized = false;
     PendingBlueprints.Empty();
     PendingNativeTypes.Empty();
-    ExportedFilesCache.Empty();
     ExportedFilesHashCache.Empty();
 
     UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("LuaExportManager shutdown."));
@@ -221,9 +213,6 @@ void ULuaExportManager::ExportIncremental()
         if (UBlueprint* Blueprint = LoadObject<UBlueprint>(nullptr, *BlueprintPath))
         {
             ExportBlueprint(Blueprint);
-            
-            FDateTime ExportTime = FDateTime::Now();
-            UpdateExportCache(BlueprintPath, ExportTime);
             ExportedCount++;
         }
     }
@@ -245,10 +234,6 @@ void ULuaExportManager::ExportIncremental()
                 SlowTask.EnterProgressFrame(1.0f, FText::FromString(FString::Printf(TEXT("正在导出原生类型: %s"), *Field->GetName())));
                 
                 ExportNativeType(Field);
-                
-                FDateTime ExportTime = FDateTime::Now();
-                FString FieldPathName = Field->GetPathName();
-                UpdateExportCache(FieldPathName, ExportTime);
                 ExportedCount++;
             }
         }
@@ -273,11 +258,6 @@ void ULuaExportManager::ExportIncremental()
         TArray<const UField*> AllNativeTypes;
         CollectNativeTypes(AllNativeTypes);
         ExportUETypes(AllNativeTypes);
-        
-        FDateTime ExportTime = FDateTime::Now();
-        UpdateExportCache(TEXT("UE"), ExportTime);
-        UpdateExportCache(TEXT("UE4"), ExportTime);
-        UpdateExportCache(TEXT("UnLua"), ExportTime);
         ExportedCount++;
     }
 
@@ -402,6 +382,11 @@ void ULuaExportManager::ExportBlueprint(const UBlueprint* Blueprint)
 		}
 		SaveFile(TEXT("/Game"), FileName, LuaCode);
 		UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("[EXPORT] Blueprint exported successfully: %s -> %s.lua"), *BlueprintPath, *FileName);
+		
+		// 更新导出缓存（使用哈希值）
+		FString BlueprintHash = GetAssetHash(BlueprintPath);
+		UpdateExportCacheByHash(BlueprintPath, BlueprintHash);
+		UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("[EXPORT] Updated cache for Blueprint: %s with hash: %s"), *BlueprintPath, *BlueprintHash);
 	}
 	else
 	{
@@ -717,127 +702,6 @@ FString ULuaExportManager::GetOutputDirectory() const
 }
 
 
-
-
-
-void ULuaExportManager::CheckNativeTypesChanges()
-{
-    // Skip if not initialized or shutting down
-    if (!bInitialized || IsEngineExitRequested())
-    {
-        return;
-    }
-    
-    double CurrentTime = FPlatformTime::Seconds();
-    
-    
-    if (CurrentTime - LastNativeTypesCheckTime < 5.0)
-    {
-        return;
-    }
-
-    LastNativeTypesCheckTime = CurrentTime;
-
-    
-    TArray<const UField*> CurrentNativeTypes;
-    CollectNativeTypes(CurrentNativeTypes);
-
-    
-    static int32 LastNativeTypesCount = -1; 
-    static bool bFirstCheck = true;
-    
-    if (bFirstCheck)
-    {
-        
-        
-        LastNativeTypesCount = CurrentNativeTypes.Num();
-        bFirstCheck = false;
-        UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("First native types check: %d types found, skipping auto-export"), CurrentNativeTypes.Num());
-        return;
-    }
-    
-    // Check for new types (count increase)
-    bool bHasNewTypes = false;
-    if (CurrentNativeTypes.Num() > LastNativeTypesCount)
-    {
-        int32 OldCount = LastNativeTypesCount;
-        LastNativeTypesCount = CurrentNativeTypes.Num();
-        
-        // Add new types to pending list
-        int32 ValidTypesCount = 0;
-        for (const UField* Field : CurrentNativeTypes)
-        {
-            FString FieldName;
-            if (IsValidFieldForExport(Field, FieldName))
-            {
-                TWeakObjectPtr<const UField> WeakField(Field);
-                if (!PendingNativeTypes.Contains(WeakField))
-                {
-                    PendingNativeTypes.Add(WeakField);
-                    ValidTypesCount++;
-                }
-            }
-        }
-        
-        UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("Native types increased from %d to %d. %d new valid types marked for export."), OldCount, CurrentNativeTypes.Num(), ValidTypesCount);
-        bHasNewTypes = true;
-    }
-    else if (CurrentNativeTypes.Num() != LastNativeTypesCount)
-    {
-        LastNativeTypesCount = CurrentNativeTypes.Num();
-        UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("Native types count changed to %d (decreased), no action needed."), CurrentNativeTypes.Num());
-    }
-    
-    // Check for structural changes in existing types using hash comparison
-    int32 ChangedTypesCount = 0;
-    for (const UField* Field : CurrentNativeTypes)
-    {
-        // Skip if field is invalid or being destroyed
-        if (!IsValid(Field) || Field->HasAnyFlags(RF_BeginDestroyed | RF_FinishDestroyed))
-        {
-            continue;
-        }
-        
-        FString FieldName;
-        if (IsValidFieldForExport(Field, FieldName))
-        {
-            // Calculate current hash for this type
-            FString CurrentHash = GetAssetHash(Field);
-            if (!CurrentHash.IsEmpty())
-            {
-                // Get the asset path for this field
-                FString AssetPath = Field->GetPathName();
-                
-                // Check if hash has changed
-                if (ShouldReexportByHash(AssetPath, CurrentHash))
-                {
-                    // Hash has changed, add to pending types
-                    TWeakObjectPtr<const UField> WeakField(Field);
-                    if (!PendingNativeTypes.Contains(WeakField))
-                    {
-                        PendingNativeTypes.Add(WeakField);
-                        ChangedTypesCount++;
-                        UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("[HASH] Detected structural change in native type: %s"), *FieldName);
-                    }
-                    
-                    // Update the hash cache
-                    UpdateExportCacheByHash(AssetPath, CurrentHash);
-                }
-            }
-        }
-    }
-    
-    if (ChangedTypesCount > 0)
-    {
-        UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("[HASH] Detected %d native types with structural changes, marked for re-export."), ChangedTypesCount);
-    }
-    else if (!bHasNewTypes)
-    {
-        // Only log this if we didn't already log about new types
-        UE_LOG(LogEmmyLuaIntelliSense, VeryVerbose, TEXT("[HASH] No structural changes detected in %d native types."), CurrentNativeTypes.Num());
-    }
-}
-
 void ULuaExportManager::ScanExistingAssets()
 {
     
@@ -927,7 +791,6 @@ void ULuaExportManager::LoadExportCache()
     
     double StartTime = FPlatformTime::Seconds();
     
-    ExportedFilesCache.Empty();
     ExportedFilesHashCache.Empty();
     
     UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("Loading export cache from: %s"), *ExportCacheFilePath);
@@ -967,39 +830,19 @@ void ULuaExportManager::LoadExportCache()
     double ProcessStartTime = FPlatformTime::Seconds();
     int32 FilteredCount = 0;
     
-    // 检查是否是新格式（包含TimeCache和HashCache）
-    const TSharedPtr<FJsonObject>* TimeCachePtr = nullptr;
+    // 检查是否是新格式（包含HashCache）
     const TSharedPtr<FJsonObject>* HashCachePtr = nullptr;
     
-    if (JsonObject->TryGetObjectField(TEXT("TimeCache"), TimeCachePtr) && 
-        JsonObject->TryGetObjectField(TEXT("HashCache"), HashCachePtr))
+    if (JsonObject->TryGetObjectField(TEXT("HashCache"), HashCachePtr))
     {
-        // 新格式：分别加载时间戳缓存和哈希缓存
-        if (TimeCachePtr && TimeCachePtr->IsValid())
-        {
-            for (const auto& Pair : (*TimeCachePtr)->Values)
-            {
-                if (ShouldExcludeFromExport(Pair.Key))
-                {
-                    FilteredCount++;
-                    continue;
-                }
-                
-                FString TimeString = Pair.Value->AsString();
-                FDateTime ExportTime;
-                if (FDateTime::Parse(TimeString, ExportTime))
-                {
-                    ExportedFilesCache.Add(Pair.Key, ExportTime);
-                }
-            }
-        }
-        
+        // 新格式：加载哈希缓存
         if (HashCachePtr && HashCachePtr->IsValid())
         {
             for (const auto& Pair : (*HashCachePtr)->Values)
             {
                 if (ShouldExcludeFromExport(Pair.Key))
                 {
+                    FilteredCount++;
                     continue;
                 }
                 
@@ -1011,29 +854,13 @@ void ULuaExportManager::LoadExportCache()
             }
         }
         
-        UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("Loaded new format cache: %d time entries, %d hash entries"), 
-            ExportedFilesCache.Num(), ExportedFilesHashCache.Num());
+        UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("Loaded hash cache: %d hash entries"), 
+            ExportedFilesHashCache.Num());
     }
     else
     {
-        // 旧格式：只有时间戳缓存
-        for (const auto& Pair : JsonObject->Values)
-        {
-            if (ShouldExcludeFromExport(Pair.Key))
-            {
-                FilteredCount++;
-                continue;
-            }
-            
-            FString TimeString = Pair.Value->AsString();
-            FDateTime ExportTime;
-            if (FDateTime::Parse(TimeString, ExportTime))
-            {
-                ExportedFilesCache.Add(Pair.Key, ExportTime);
-            }
-        }
-        
-        UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("Loaded old format cache: %d time entries"), ExportedFilesCache.Num());
+        // 旧格式或空缓存，忽略时间戳缓存，重新开始
+        UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("Old format cache detected, starting fresh with hash-based caching"));
     }
     
     double ProcessEndTime = FPlatformTime::Seconds();
@@ -1041,8 +868,8 @@ void ULuaExportManager::LoadExportCache()
     
     
     double TotalTime = FPlatformTime::Seconds() - StartTime;
-    UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("LoadExportCache completed: %d time entries, %d hash entries loaded in %.3f ms"), 
-        ExportedFilesCache.Num(), ExportedFilesHashCache.Num(), TotalTime * 1000.0);
+    UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("LoadExportCache completed: %d hash entries loaded in %.3f ms"), 
+        ExportedFilesHashCache.Num(), TotalTime * 1000.0);
 }
 
 void ULuaExportManager::SaveExportCache()
@@ -1050,8 +877,8 @@ void ULuaExportManager::SaveExportCache()
     
     double StartTime = FPlatformTime::Seconds();
     
-    UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("Saving export cache with %d time entries and %d hash entries to: %s"), 
-        ExportedFilesCache.Num(), ExportedFilesHashCache.Num(), *ExportCacheFilePath);
+    UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("Saving export cache with %d hash entries to: %s"), 
+        ExportedFilesHashCache.Num(), *ExportCacheFilePath);
     
     
     FString CacheDir = FPaths::GetPath(ExportCacheFilePath);
@@ -1063,14 +890,6 @@ void ULuaExportManager::SaveExportCache()
     
     double SerializeStartTime = FPlatformTime::Seconds();
     TSharedPtr<FJsonObject> JsonObject = MakeShareable(new FJsonObject);
-    
-    // 保存时间戳缓存
-    TSharedPtr<FJsonObject> TimeCache = MakeShareable(new FJsonObject);
-    for (const auto& Pair : ExportedFilesCache)
-    {
-        TimeCache->SetStringField(Pair.Key, Pair.Value.ToString());
-    }
-    JsonObject->SetObjectField(TEXT("TimeCache"), TimeCache);
     
     // 保存哈希缓存
     TSharedPtr<FJsonObject> HashCache = MakeShareable(new FJsonObject);
@@ -1112,118 +931,17 @@ void ULuaExportManager::SaveExportCache()
     UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("SaveExportCache completed in %.3f ms"), TotalTime * 1000.0);
 }
 
-bool ULuaExportManager::ShouldReexport(const FString& AssetPath, const FDateTime& AssetModifyTime) const
-{
-    
-    const UEmmyLuaIntelliSenseSettings* Settings = UEmmyLuaIntelliSenseSettings::Get();
-    
-    if (Settings && Settings->FileComparisonMethod == EFileComparisonMethod::Hash)
-    {
-        
-        FString AssetHash = GetAssetHash(AssetPath);
-        if (AssetHash.IsEmpty())
-        {
-            return true;
-        }
-        
-        return ShouldReexportByHash(AssetPath, AssetHash);
-    }
-    else
-    {
-        
-        const FDateTime* CachedTime = ExportedFilesCache.Find(AssetPath);
-        
-        if (!CachedTime)
-        {
-            return true;
-        }
-        
-        
-        bool bShouldReexport = AssetModifyTime > *CachedTime;
-        if (bShouldReexport)
-        {
-            UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("[REEXPORT] %s: Asset time=%s, Cache time=%s, Should reexport=%s"), 
-              *AssetPath, 
-              *AssetModifyTime.ToString(), 
-              *CachedTime->ToString(), 
-              bShouldReexport ? TEXT("YES") : TEXT("NO"));  
-        }
-        return bShouldReexport;
-    }
-}
-
 bool ULuaExportManager::ShouldReexport(const FString& AssetPath, const FString& AssetFilePath) const
 {
-    
-    const UEmmyLuaIntelliSenseSettings* Settings = UEmmyLuaIntelliSenseSettings::Get();
-    
-    if (Settings && Settings->FileComparisonMethod == EFileComparisonMethod::Hash)
+    // 统一使用哈希值判断，不再依赖时间戳
+    FString AssetHash = CalculateFileHash(AssetFilePath);
+    if (AssetHash.IsEmpty())
     {
-        
-        FString AssetHash = CalculateFileHash(AssetFilePath);
-        if (AssetHash.IsEmpty())
-        {
-            UE_LOG(LogEmmyLuaIntelliSense, VeryVerbose, TEXT("[REEXPORT] Failed to get hash for file %s (asset: %s), will export"), *AssetFilePath, *AssetPath);
-            return true;
-        }
-        
-        return ShouldReexportByHash(AssetPath, AssetHash);
-    }
-    else
-    {
-        
-        FDateTime AssetModifyTime = IFileManager::Get().GetTimeStamp(*AssetFilePath);
-        if (AssetModifyTime == FDateTime::MinValue())
-        {
-            return true;
-        }
-        
-        const FDateTime* CachedTime = ExportedFilesCache.Find(AssetPath);
-        
-        if (!CachedTime)
-        {
-            return true;
-        }
-        
-        
-        bool bShouldReexport = AssetModifyTime > *CachedTime;
-        if (bShouldReexport)
-        {
-            UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("[REEXPORT] %s: Asset time=%s, Cache time=%s, Should reexport=%s"), 
-                *AssetPath, 
-                *AssetModifyTime.ToString(), 
-                *CachedTime->ToString(), 
-                bShouldReexport ? TEXT("YES") : TEXT("NO"));
-        }
-        return bShouldReexport;
-    }
-}
-
-void ULuaExportManager::UpdateExportCache(const FString& AssetPath, const FDateTime& ExportTime)
-{
-    
-    if (ShouldExcludeFromExport(AssetPath))
-    {
-        return;
+        UE_LOG(LogEmmyLuaIntelliSense, VeryVerbose, TEXT("[REEXPORT] Failed to get hash for file %s (asset: %s), will export"), *AssetFilePath, *AssetPath);
+        return true;
     }
     
-    
-    const UEmmyLuaIntelliSenseSettings* Settings = UEmmyLuaIntelliSenseSettings::Get();
-    
-    if (Settings && Settings->FileComparisonMethod == EFileComparisonMethod::Hash)
-    {
-        
-        FString AssetHash = GetAssetHash(AssetPath);
-        if (!AssetHash.IsEmpty())
-        {
-            UpdateExportCacheByHash(AssetPath, AssetHash);
-        }
-    }
-    else
-    {
-        
-        ExportedFilesCache.Add(AssetPath, ExportTime);
-    }
+    return ShouldReexportByHash(AssetPath, AssetHash);
 }
 
 bool ULuaExportManager::IsValidFieldForExport(const UField* Field, FString& OutFieldName) const
@@ -1274,86 +992,6 @@ bool ULuaExportManager::IsValidFieldForExport(const UField* Field, FString& OutF
     }
 
     return true;
-}
-
-FDateTime ULuaExportManager::GetAssetModifyTime(const FString& AssetPath) const
-{
-    
-    
-    FString NormalizedAssetPath = AssetPath;
-    int32 LastDotIndex;
-    if (NormalizedAssetPath.FindLastChar('.', LastDotIndex))
-    {
-        FString ClassName = NormalizedAssetPath.Mid(LastDotIndex + 1);
-        FString PathWithoutClass = NormalizedAssetPath.Left(LastDotIndex);
-        
-        
-        if (PathWithoutClass.EndsWith("/" + ClassName))
-        {
-            NormalizedAssetPath = PathWithoutClass;
-            UE_LOG(LogEmmyLuaIntelliSense, VeryVerbose, TEXT("[TIMESTAMP] Normalized blueprint path: %s -> %s"), *AssetPath, *NormalizedAssetPath);
-        }
-    }
-    
-    
-    if (NormalizedAssetPath.StartsWith(TEXT("/Game/")))
-    {
-        FString PackageName = NormalizedAssetPath.RightChop(6); 
-        FString AssetFilePath = FPaths::Combine(FPaths::ProjectContentDir(), PackageName + TEXT(".uasset"));
-        
-        UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("[TIMESTAMP] Checking Game Blueprint file: %s -> %s"), *AssetPath, *AssetFilePath);
-        
-        if (FPaths::FileExists(AssetFilePath))
-        {
-            FDateTime ModifyTime = IFileManager::Get().GetTimeStamp(*AssetFilePath);
-            UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("[TIMESTAMP] Blueprint modify time: %s"), *ModifyTime.ToString());
-            return ModifyTime;
-        }
-        else
-        {
-            UE_LOG(LogEmmyLuaIntelliSense, Warning, TEXT("[TIMESTAMP] Game Blueprint file not found: %s"), *AssetFilePath);
-        }
-    }
-    
-    else if (NormalizedAssetPath.StartsWith(TEXT("/")) && NormalizedAssetPath.Contains(TEXT("/")))
-    {
-        
-        FString PackageName = NormalizedAssetPath;
-        FString AssetFilePath;
-        
-        
-        if (FPackageName::TryConvertLongPackageNameToFilename(PackageName, AssetFilePath, TEXT(".uasset")))
-        {
-            UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("[TIMESTAMP] Checking Plugin Blueprint file: %s -> %s"), *AssetPath, *AssetFilePath);
-            
-            if (FPaths::FileExists(AssetFilePath))
-            {
-                FDateTime ModifyTime = IFileManager::Get().GetTimeStamp(*AssetFilePath);
-                UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("[TIMESTAMP] Plugin Blueprint modify time: %s"), *ModifyTime.ToString());
-                return ModifyTime;
-            }
-            else
-            {
-                UE_LOG(LogEmmyLuaIntelliSense, Warning, TEXT("[TIMESTAMP] Plugin Blueprint file not found: %s"), *AssetFilePath);
-            }
-        }
-        else
-        {
-            UE_LOG(LogEmmyLuaIntelliSense, Warning, TEXT("[TIMESTAMP] Failed to convert package name to file path: %s"), *AssetPath);
-        }
-    }
-    
-    else if (AssetPath.StartsWith(TEXT("/Native/")))
-    {
-        FString ModuleFilename = FModuleManager::Get().GetModuleFilename("EmmyLuaIntelliSense");
-        if (FPaths::FileExists(ModuleFilename))
-        {
-            return FDateTime::FromUnixTimestamp(FPlatformFileManager::Get().GetPlatformFile().GetStatData(*ModuleFilename).ModificationTime.ToUnixTimestamp());
-        }
-    }
-    
-    
-    return FDateTime::Now();
 }
 
 void ULuaExportManager::LoadExcludedPathsFromFile(TArray<FString>& OutExcludedPaths) const
@@ -1416,6 +1054,11 @@ void ULuaExportManager::LoadExcludedPathsFromFile(TArray<FString>& OutExcludedPa
     }
 }
 
+/**
+ * 计算文件的SHA1哈希值
+ * @param FilePath 要计算哈希的文件路径
+ * @return 文件的SHA1哈希值（40位十六进制字符串），如果文件不存在或读取失败则返回空字符串
+ */
 FString ULuaExportManager::CalculateFileHash(const FString& FilePath) const
 {
     if (!FPaths::FileExists(FilePath))
@@ -1445,6 +1088,12 @@ FString ULuaExportManager::CalculateFileHash(const FString& FilePath) const
     return HashString;
 }
 
+/**
+ * 计算UE类结构的哈希值，用于检测类定义的变化
+ * 包括类名、父类、属性、函数等结构信息
+ * @param Class 要计算哈希的UE类
+ * @return 类结构的SHA1哈希值，如果类无效则返回空字符串
+ */
 FString ULuaExportManager::CalculateClassStructureHash(const UClass* Class) const
 {
     if (!Class || !IsValid(Class) || Class->HasAnyFlags(RF_BeginDestroyed | RF_FinishDestroyed))
@@ -1490,12 +1139,6 @@ FString ULuaExportManager::CalculateClassStructureHash(const UClass* Class) cons
     {
         UFunction* Function = *FunctionIt;
         if (!Function)
-        {
-            continue;
-        }
-        
-        // 只关心导出的函数（例如，只包含带有 UFUNCTION(BlueprintCallable) 标志的函数）
-        if (!Function->HasAnyFunctionFlags(FUNC_BlueprintCallable))
         {
             continue;
         }
@@ -1684,6 +1327,12 @@ FString ULuaExportManager::GetAssetHash(const UField* Field) const
     return HashString;
 }
 
+/**
+ * 基于哈希值判断资源是否需要重新导出
+ * @param AssetPath 资源路径
+ * @param AssetHash 资源的当前哈希值
+ * @return true表示需要重新导出，false表示不需要
+ */
 bool ULuaExportManager::ShouldReexportByHash(const FString& AssetPath, const FString& AssetHash) const
 {
     const FString* CachedHash = ExportedFilesHashCache.Find(AssetPath);
