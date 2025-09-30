@@ -727,7 +727,11 @@ void ULuaExportManager::InitializeFileWatcher()
     }
 
     FDirectoryWatcherModule& DirectoryWatcherModule = FModuleManager::LoadModuleChecked<FDirectoryWatcherModule>(TEXT("DirectoryWatcher"));
-    DirectoryWatcher = DirectoryWatcherModule.Get();
+    IDirectoryWatcher* RawDirectoryWatcher = DirectoryWatcherModule.Get();
+    if (RawDirectoryWatcher)
+    {
+        DirectoryWatcher = MakeShareable(RawDirectoryWatcher);
+    }
 
     if (DirectoryWatcher.IsValid())
     {
