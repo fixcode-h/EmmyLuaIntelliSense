@@ -45,7 +45,6 @@ public class EmmyLuaIntelliSense : ModuleRules
 				"PropertyEditor",
 				"ToolMenus",
 				"Projects",
-				"DirectoryWatcher",
 				"ApplicationCore",
 				"InputCore",
 				"DesktopPlatform",

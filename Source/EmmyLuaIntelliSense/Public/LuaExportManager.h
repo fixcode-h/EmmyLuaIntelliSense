@@ -8,8 +8,6 @@
 #include "EditorSubsystem.h"
 #include "LuaExportManager.generated.h"
 
-class IDirectoryWatcher;
-
 /**
  * 增量导出管理器
  * 负责监听UE反射代码变化并管理Lua文件的增量导出
@@ -72,12 +70,6 @@ private:
 
     /** 待导出的原生类型 */
     TSet<TWeakObjectPtr<const UField>> PendingNativeTypes;
-
-    /** 文件监听器 */
-    TSharedPtr<IDirectoryWatcher> DirectoryWatcher;
-
-    /** 监听的目录和对应的句柄 */
-    TMap<FString, FDelegateHandle> WatchedDirectories;
 
     /** 上次检查原生类型的时间 */
     double LastNativeTypesCheckTime;
@@ -159,8 +151,14 @@ private:
     /** 计算文件的哈希值 */
     FString CalculateFileHash(const FString& FilePath) const;
     
+    /** 计算UE类结构签名哈希值 */
+    FString CalculateClassStructureHash(const UClass* Class) const;
+    
     /** 获取资源的哈希值 */
     FString GetAssetHash(const FString& AssetPath) const;
+    
+    /** 获取UField的哈希值（用于原生类型） */
+    FString GetAssetHash(const UField* Field) const;
     
     /** 检查文件是否需要重新导出（基于哈希值） */
     bool ShouldReexportByHash(const FString& AssetPath, const FString& AssetHash) const;

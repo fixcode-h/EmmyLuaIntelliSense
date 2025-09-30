@@ -14,9 +14,7 @@
 #include "Interfaces/IPluginManager.h"
 #include "Framework/Notifications/NotificationManager.h"
 #include "Widgets/Notifications/SNotificationList.h"
-#include "DirectoryWatcherModule.h"
 #include "EmmyLuaIntelliSense.h"
-#include "IDirectoryWatcher.h"
 #include "Engine/Engine.h"
 #include "Engine/World.h"
 #include "Misc/ScopedSlowTask.h"
@@ -27,7 +25,6 @@
 
 ULuaExportManager::ULuaExportManager()
     : bInitialized(false)
-    , DirectoryWatcher(nullptr)
     , LastNativeTypesCheckTime(0.0)
 {
     
@@ -65,15 +62,15 @@ void ULuaExportManager::Initialize(FSubsystemCollectionBase& Collection)
     OutputDir = GetOutputDirectory();
 
     
-    InitializeFileWatcher();
-
-    
     LastNativeTypesCheckTime = FPlatformTime::Seconds();
 
     
     LoadExportCache();
 
     bInitialized = true;
+
+    // 执行一次原生类型检查，检测C++类的结构变化
+    CheckNativeTypesChanges();
 
     UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("=== LuaExportManager initialized successfully. Output directory: %s ==="), *OutputDir);
 }
@@ -87,16 +84,14 @@ void ULuaExportManager::Deinitialize()
         return;
     }
     
-    ShutdownFileWatcher();
-
     
     SaveExportCache();
 
     bInitialized = false;
     PendingBlueprints.Empty();
     PendingNativeTypes.Empty();
-    WatchedDirectories.Empty();
     ExportedFilesCache.Empty();
+    ExportedFilesHashCache.Empty();
 
     UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("LuaExportManager shutdown."));
 }
@@ -460,8 +455,10 @@ void ULuaExportManager::ExportNativeType(const UField* Field)
             SaveFile(ModuleName, FileName, LuaCode);
             UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("[EXPORT] Native Type exported successfully: %s -> %s/%s.lua"), *NativeTypePath, *ModuleName, *FileName);
             
-            
-            UpdateExportCache(NativeTypePath, FDateTime::Now());
+            // 更新导出缓存（使用结构签名哈希）
+            FString FieldHash = GetAssetHash(Field);
+            UpdateExportCacheByHash(NativeTypePath, FieldHash);
+            UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("[EXPORT] Updated cache for Native Type: %s with hash: %s"), *NativeTypePath, *FieldHash);
         }
         else
         {
@@ -719,118 +716,18 @@ FString ULuaExportManager::GetOutputDirectory() const
     return FPaths::Combine(FPaths::ProjectIntermediateDir(), TEXT("LuaIntelliSense"));
 }
 
-void ULuaExportManager::InitializeFileWatcher()
-{
-    if (!FModuleManager::Get().IsModuleLoaded(TEXT("DirectoryWatcher")))
-    {
-        return;
-    }
 
-    FDirectoryWatcherModule& DirectoryWatcherModule = FModuleManager::LoadModuleChecked<FDirectoryWatcherModule>(TEXT("DirectoryWatcher"));
-    IDirectoryWatcher* RawDirectoryWatcher = DirectoryWatcherModule.Get();
-    if (RawDirectoryWatcher)
-    {
-        DirectoryWatcher = MakeShareable(RawDirectoryWatcher);
-    }
 
-    if (DirectoryWatcher.IsValid())
-    {
-        
-        FString EngineSourceDir = FPaths::Combine(FPaths::EngineDir(), TEXT("Source"));
-        AddWatchDirectory(EngineSourceDir);
 
-        
-        FString ProjectSourceDir = FPaths::Combine(FPaths::ProjectDir(), TEXT("Source"));
-        if (FPaths::DirectoryExists(ProjectSourceDir))
-        {
-            AddWatchDirectory(ProjectSourceDir);
-        }
-
-        
-        FString PluginsDir = FPaths::Combine(FPaths::ProjectDir(), TEXT("Plugins"));
-        if (FPaths::DirectoryExists(PluginsDir))
-        {
-            AddWatchDirectory(PluginsDir);
-        }
-
-        UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("File watcher initialized with %d directories"), WatchedDirectories.Num());
-    }
-}
-
-void ULuaExportManager::ShutdownFileWatcher()
-{
-    if (DirectoryWatcher.IsValid())
-    {
-        for (const auto& Pair : WatchedDirectories)
-        {
-            DirectoryWatcher->UnregisterDirectoryChangedCallback_Handle(Pair.Key, Pair.Value);
-        }
-        DirectoryWatcher.Reset();
-    }
-}
-
-void ULuaExportManager::AddWatchDirectory(const FString& Directory)
-{
-    if (DirectoryWatcher.IsValid() && FPaths::DirectoryExists(Directory))
-    {
-        FDelegateHandle Handle;
-        bool bSuccess = DirectoryWatcher->RegisterDirectoryChangedCallback_Handle(
-            Directory,
-            IDirectoryWatcher::FDirectoryChanged::CreateUObject(this, &ULuaExportManager::OnDirectoryChanged),
-            Handle,
-            true 
-        );
-
-        if (bSuccess)
-        {
-            WatchedDirectories.Add(Directory, Handle);
-            UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("Added directory watcher: %s"), *Directory);
-        }
-    }
-}
-
-void ULuaExportManager::OnDirectoryChanged(const TArray<FFileChangeData>& FileChanges)
-{
-    bool bHasRelevantChanges = false;
-
-    for (const FFileChangeData& Change : FileChanges)
-    {
-        FString FileName = FPaths::GetCleanFilename(Change.Filename);
-        FString Extension = FPaths::GetExtension(FileName);
-
-        
-        if (Extension == TEXT("h") || Extension == TEXT("cpp") || Extension == TEXT("hpp"))
-        {
-            
-            if (FileName.Contains(TEXT("~")) || FileName.Contains(TEXT(".tmp")))
-            {
-                continue;
-            }
-
-            UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("Detected file change: %s (Action: %d)"), *Change.Filename, (int32)Change.Action);
-            bHasRelevantChanges = true;
-        }
-    }
-
-    if (bHasRelevantChanges)
-    {
-        
-        if (GEngine && GEngine->GetWorld())
-        {
-            FTimerHandle TimerHandle;
-            FTimerManager& TimerManager = GEngine->GetWorld()->GetTimerManager();
-            TimerManager.SetTimer(TimerHandle, [this](){ CheckNativeTypesChanges(); }, 2.0f, false);
-        }
-        else
-        {
-            
-            CheckNativeTypesChanges();
-        }
-    }
-}
 
 void ULuaExportManager::CheckNativeTypesChanges()
 {
+    // Skip if not initialized or shutting down
+    if (!bInitialized || IsEngineExitRequested())
+    {
+        return;
+    }
+    
     double CurrentTime = FPlatformTime::Seconds();
     
     
@@ -859,38 +756,85 @@ void ULuaExportManager::CheckNativeTypesChanges()
         return;
     }
     
-    if (CurrentNativeTypes.Num() != LastNativeTypesCount)
+    // Check for new types (count increase)
+    bool bHasNewTypes = false;
+    if (CurrentNativeTypes.Num() > LastNativeTypesCount)
     {
         int32 OldCount = LastNativeTypesCount;
         LastNativeTypesCount = CurrentNativeTypes.Num();
         
-        
-        
-        if (CurrentNativeTypes.Num() > OldCount)
+        // Add new types to pending list
+        int32 ValidTypesCount = 0;
+        for (const UField* Field : CurrentNativeTypes)
         {
-            
-            int32 ValidTypesCount = 0;
-            for (const UField* Field : CurrentNativeTypes)
+            FString FieldName;
+            if (IsValidFieldForExport(Field, FieldName))
             {
-                FString FieldName;
-                if (IsValidFieldForExport(Field, FieldName))
+                TWeakObjectPtr<const UField> WeakField(Field);
+                if (!PendingNativeTypes.Contains(WeakField))
                 {
-                    
+                    PendingNativeTypes.Add(WeakField);
+                    ValidTypesCount++;
+                }
+            }
+        }
+        
+        UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("Native types increased from %d to %d. %d new valid types marked for export."), OldCount, CurrentNativeTypes.Num(), ValidTypesCount);
+        bHasNewTypes = true;
+    }
+    else if (CurrentNativeTypes.Num() != LastNativeTypesCount)
+    {
+        LastNativeTypesCount = CurrentNativeTypes.Num();
+        UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("Native types count changed to %d (decreased), no action needed."), CurrentNativeTypes.Num());
+    }
+    
+    // Check for structural changes in existing types using hash comparison
+    int32 ChangedTypesCount = 0;
+    for (const UField* Field : CurrentNativeTypes)
+    {
+        // Skip if field is invalid or being destroyed
+        if (!IsValid(Field) || Field->HasAnyFlags(RF_BeginDestroyed | RF_FinishDestroyed))
+        {
+            continue;
+        }
+        
+        FString FieldName;
+        if (IsValidFieldForExport(Field, FieldName))
+        {
+            // Calculate current hash for this type
+            FString CurrentHash = GetAssetHash(Field);
+            if (!CurrentHash.IsEmpty())
+            {
+                // Get the asset path for this field
+                FString AssetPath = Field->GetPathName();
+                
+                // Check if hash has changed
+                if (ShouldReexportByHash(AssetPath, CurrentHash))
+                {
+                    // Hash has changed, add to pending types
                     TWeakObjectPtr<const UField> WeakField(Field);
                     if (!PendingNativeTypes.Contains(WeakField))
                     {
                         PendingNativeTypes.Add(WeakField);
-                        ValidTypesCount++;
+                        ChangedTypesCount++;
+                        UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("[HASH] Detected structural change in native type: %s"), *FieldName);
                     }
+                    
+                    // Update the hash cache
+                    UpdateExportCacheByHash(AssetPath, CurrentHash);
                 }
             }
-            
-            UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("Native types increased from %d to %d. %d new valid types marked for export."), OldCount, CurrentNativeTypes.Num(), ValidTypesCount);
         }
-        else
-        {
-            UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("Native types count changed from %d to %d (decreased or no change), no action needed."), OldCount, CurrentNativeTypes.Num());
-        }
+    }
+    
+    if (ChangedTypesCount > 0)
+    {
+        UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("[HASH] Detected %d native types with structural changes, marked for re-export."), ChangedTypesCount);
+    }
+    else if (!bHasNewTypes)
+    {
+        // Only log this if we didn't already log about new types
+        UE_LOG(LogEmmyLuaIntelliSense, VeryVerbose, TEXT("[HASH] No structural changes detected in %d native types."), CurrentNativeTypes.Num());
     }
 }
 
@@ -943,17 +887,18 @@ void ULuaExportManager::ScanExistingAssets()
             }
             
             
-            FDateTime CompileTime = FDateTime::FromUnixTimestamp(FPlatformFileManager::Get().GetPlatformFile().GetStatData(*FModuleManager::Get().GetModuleFilename("EmmyLuaIntelliSense")).ModificationTime.ToUnixTimestamp());
+            // 使用结构签名哈希检查原生类型是否需要重新导出
+            FString FieldHash = GetAssetHash(Field);
             
-            if (ShouldReexport(NativeTypePath, CompileTime))
+            if (ShouldReexportByHash(NativeTypePath, FieldHash))
             {
                 PendingNativeTypes.Add(TWeakObjectPtr<const UField>(Field));
                 PendingNativeTypesCount++;
-                UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("[SCAN] Added Native Type to pending list: %s"), *NativeTypePath);
+                UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("[SCAN] Added Native Type to pending list: %s (Hash: %s)"), *NativeTypePath, *FieldHash);
             }
             else
             {
-                UE_LOG(LogEmmyLuaIntelliSense, Verbose, TEXT("[SCAN] Native Type up-to-date, skipping: %s"), *NativeTypePath);
+                UE_LOG(LogEmmyLuaIntelliSense, Verbose, TEXT("[SCAN] Native Type up-to-date, skipping: %s (Hash: %s)"), *NativeTypePath, *FieldHash);
             }
         }
     }
@@ -983,6 +928,7 @@ void ULuaExportManager::LoadExportCache()
     double StartTime = FPlatformTime::Seconds();
     
     ExportedFilesCache.Empty();
+    ExportedFilesHashCache.Empty();
     
     UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("Loading export cache from: %s"), *ExportCacheFilePath);
     
@@ -1020,28 +966,83 @@ void ULuaExportManager::LoadExportCache()
     
     double ProcessStartTime = FPlatformTime::Seconds();
     int32 FilteredCount = 0;
-    for (const auto& Pair : JsonObject->Values)
+    
+    // 检查是否是新格式（包含TimeCache和HashCache）
+    const TSharedPtr<FJsonObject>* TimeCachePtr = nullptr;
+    const TSharedPtr<FJsonObject>* HashCachePtr = nullptr;
+    
+    if (JsonObject->TryGetObjectField(TEXT("TimeCache"), TimeCachePtr) && 
+        JsonObject->TryGetObjectField(TEXT("HashCache"), HashCachePtr))
     {
-        
-        if (ShouldExcludeFromExport(Pair.Key))
+        // 新格式：分别加载时间戳缓存和哈希缓存
+        if (TimeCachePtr && TimeCachePtr->IsValid())
         {
-            FilteredCount++;
-            continue;
+            for (const auto& Pair : (*TimeCachePtr)->Values)
+            {
+                if (ShouldExcludeFromExport(Pair.Key))
+                {
+                    FilteredCount++;
+                    continue;
+                }
+                
+                FString TimeString = Pair.Value->AsString();
+                FDateTime ExportTime;
+                if (FDateTime::Parse(TimeString, ExportTime))
+                {
+                    ExportedFilesCache.Add(Pair.Key, ExportTime);
+                }
+            }
         }
         
-        FString TimeString = Pair.Value->AsString();
-        FDateTime ExportTime;
-        if (FDateTime::Parse(TimeString, ExportTime))
+        if (HashCachePtr && HashCachePtr->IsValid())
         {
-            ExportedFilesCache.Add(Pair.Key, ExportTime);
+            for (const auto& Pair : (*HashCachePtr)->Values)
+            {
+                if (ShouldExcludeFromExport(Pair.Key))
+                {
+                    continue;
+                }
+                
+                FString HashString = Pair.Value->AsString();
+                if (!HashString.IsEmpty())
+                {
+                    ExportedFilesHashCache.Add(Pair.Key, HashString);
+                }
+            }
         }
+        
+        UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("Loaded new format cache: %d time entries, %d hash entries"), 
+            ExportedFilesCache.Num(), ExportedFilesHashCache.Num());
     }
+    else
+    {
+        // 旧格式：只有时间戳缓存
+        for (const auto& Pair : JsonObject->Values)
+        {
+            if (ShouldExcludeFromExport(Pair.Key))
+            {
+                FilteredCount++;
+                continue;
+            }
+            
+            FString TimeString = Pair.Value->AsString();
+            FDateTime ExportTime;
+            if (FDateTime::Parse(TimeString, ExportTime))
+            {
+                ExportedFilesCache.Add(Pair.Key, ExportTime);
+            }
+        }
+        
+        UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("Loaded old format cache: %d time entries"), ExportedFilesCache.Num());
+    }
+    
     double ProcessEndTime = FPlatformTime::Seconds();
     UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("Cache processing took: %.3f ms, filtered %d excluded paths"), (ProcessEndTime - ProcessStartTime) * 1000.0, FilteredCount);
     
     
     double TotalTime = FPlatformTime::Seconds() - StartTime;
-    UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("LoadExportCache completed: %d entries loaded in %.3f ms"), ExportedFilesCache.Num(), TotalTime * 1000.0);
+    UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("LoadExportCache completed: %d time entries, %d hash entries loaded in %.3f ms"), 
+        ExportedFilesCache.Num(), ExportedFilesHashCache.Num(), TotalTime * 1000.0);
 }
 
 void ULuaExportManager::SaveExportCache()
@@ -1049,7 +1050,8 @@ void ULuaExportManager::SaveExportCache()
     
     double StartTime = FPlatformTime::Seconds();
     
-    UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("Saving export cache with %d entries to: %s"), ExportedFilesCache.Num(), *ExportCacheFilePath);
+    UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("Saving export cache with %d time entries and %d hash entries to: %s"), 
+        ExportedFilesCache.Num(), ExportedFilesHashCache.Num(), *ExportCacheFilePath);
     
     
     FString CacheDir = FPaths::GetPath(ExportCacheFilePath);
@@ -1062,10 +1064,21 @@ void ULuaExportManager::SaveExportCache()
     double SerializeStartTime = FPlatformTime::Seconds();
     TSharedPtr<FJsonObject> JsonObject = MakeShareable(new FJsonObject);
     
+    // 保存时间戳缓存
+    TSharedPtr<FJsonObject> TimeCache = MakeShareable(new FJsonObject);
     for (const auto& Pair : ExportedFilesCache)
     {
-        JsonObject->SetStringField(Pair.Key, Pair.Value.ToString());
+        TimeCache->SetStringField(Pair.Key, Pair.Value.ToString());
     }
+    JsonObject->SetObjectField(TEXT("TimeCache"), TimeCache);
+    
+    // 保存哈希缓存
+    TSharedPtr<FJsonObject> HashCache = MakeShareable(new FJsonObject);
+    for (const auto& Pair : ExportedFilesHashCache)
+    {
+        HashCache->SetStringField(Pair.Key, Pair.Value);
+    }
+    JsonObject->SetObjectField(TEXT("HashCache"), HashCache);
     
     FString JsonString;
     TSharedRef<TJsonWriter<>> Writer = TJsonWriterFactory<>::Create(&JsonString);
@@ -1413,7 +1426,7 @@ FString ULuaExportManager::CalculateFileHash(const FString& FilePath) const
     TArray<uint8> FileData;
     if (!FFileHelper::LoadFileToArray(FileData, *FilePath))
     {
-        UE_LOG(LogEmmyLuaIntelliSense, Warning, TEXT("[HASH] Failed to load file for hashing: %s"), *FilePath);
+        UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("[HASH] Failed to load file for hashing: %s"), *FilePath);
         return FString();
     }
     
@@ -1432,10 +1445,113 @@ FString ULuaExportManager::CalculateFileHash(const FString& FilePath) const
     return HashString;
 }
 
+FString ULuaExportManager::CalculateClassStructureHash(const UClass* Class) const
+{
+    if (!Class || !IsValid(Class) || Class->HasAnyFlags(RF_BeginDestroyed | RF_FinishDestroyed))
+    {
+        return FString();
+    }
+    
+    FString SignatureString;
+    
+    // 1. 类名 (Class Name)
+    SignatureString += FString::Printf(TEXT("ClassName:%s;"), *Class->GetName());
+    
+    // 2. 父类名 (Parent Class Name)
+    if (const UClass* SuperClass = Class->GetSuperClass())
+    {
+        SignatureString += FString::Printf(TEXT("ParentClass:%s;"), *SuperClass->GetName());
+    }
+    else
+    {
+        SignatureString += TEXT("ParentClass:None;");
+    }
+    
+    // 3. 所有属性 (Properties)
+    SignatureString += TEXT("Properties:[");
+    for (TFieldIterator<FProperty> PropertyIt(Class, EFieldIteratorFlags::ExcludeSuper); PropertyIt; ++PropertyIt)
+    {
+        FProperty* Property = *PropertyIt;
+        if (!Property)
+        {
+            continue;
+        }
+
+        SignatureString += FString::Printf(TEXT("Name:%s,"), *Property->GetName());
+        SignatureString += FString::Printf(TEXT("Type:%s,"), *Property->GetClass()->GetName());
+
+        SignatureString += TEXT(";");
+    }
+    SignatureString += TEXT("];");
+    
+    // 4. 所有函数 (Functions)
+    SignatureString += TEXT("Functions:[");
+    for (TFieldIterator<UFunction> FunctionIt(Class, EFieldIteratorFlags::ExcludeSuper); FunctionIt; ++FunctionIt)
+    {
+        UFunction* Function = *FunctionIt;
+        if (!Function)
+        {
+            continue;
+        }
+        
+        // 只关心导出的函数（例如，只包含带有 UFUNCTION(BlueprintCallable) 标志的函数）
+        if (!Function->HasAnyFunctionFlags(FUNC_BlueprintCallable))
+        {
+            continue;
+        }
+        
+        // 函数名称
+        SignatureString += FString::Printf(TEXT("Name:%s,"), *Function->GetName());
+        
+        // 返回值类型
+        if (FProperty* ReturnProperty = Function->GetReturnProperty())
+        {
+            SignatureString += FString::Printf(TEXT("ReturnType:%s,"), *ReturnProperty->GetClass()->GetName());
+        }
+        else
+        {
+            SignatureString += TEXT("ReturnType:void,");
+        }
+        
+        // 所有参数的类型和名称
+        SignatureString += TEXT("Params:[");
+        for (TFieldIterator<FProperty> ParamIt(Function); ParamIt; ++ParamIt)
+        {
+            FProperty* Param = *ParamIt;
+            if (!Param || Param->HasAnyPropertyFlags(CPF_ReturnParm))
+            {
+                continue;
+            }
+            
+            SignatureString += FString::Printf(TEXT("ParamName:%s,ParamType:%s;"), *Param->GetName(), *Param->GetClass()->GetName());
+        }
+        SignatureString += TEXT("],");
+        
+        SignatureString += TEXT(";");
+    }
+    SignatureString += TEXT("];");
+    
+    // 使用FSHA1计算哈希
+    FSHA1 Sha1;
+    FTCHARToUTF8 UTF8String(*SignatureString);
+    Sha1.Update((const uint8*)UTF8String.Get(), UTF8String.Length());
+    Sha1.Final();
+    
+    // 转换为十六进制字符串
+    FString HashString;
+    for (int32 i = 0; i < 20; ++i)
+    {
+        HashString += FString::Printf(TEXT("%02x"), Sha1.m_digest[i]);
+    }
+    
+    UE_LOG(LogEmmyLuaIntelliSense, VeryVerbose, TEXT("[STRUCTURE_HASH] Class %s signature: %s"), *Class->GetName(), *SignatureString);
+    UE_LOG(LogEmmyLuaIntelliSense, VeryVerbose, TEXT("[STRUCTURE_HASH] Class %s hash: %s"), *Class->GetName(), *HashString);
+    
+    return HashString;
+}
+
 FString ULuaExportManager::GetAssetHash(const FString& AssetPath) const
 {
-    
-    
     FString NormalizedAssetPath = AssetPath;
     int32 LastDotIndex;
     if (NormalizedAssetPath.FindLastChar('.', LastDotIndex))
@@ -1466,7 +1582,7 @@ FString ULuaExportManager::GetAssetHash(const FString& AssetPath) const
         }
         else
         {
-            UE_LOG(LogEmmyLuaIntelliSense, Warning, TEXT("[HASH] Failed to calculate hash for Game Blueprint: %s"), *AssetFilePath);
+            UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("[HASH] Failed to calculate hash for Game Blueprint: %s"), *AssetFilePath);
         }
         
         return Hash;
@@ -1490,20 +1606,82 @@ FString ULuaExportManager::GetAssetHash(const FString& AssetPath) const
             }
             else
             {
-                UE_LOG(LogEmmyLuaIntelliSense, Warning, TEXT("[HASH] Failed to calculate hash for Plugin Blueprint: %s"), *AssetFilePath);
+                UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("[HASH] Failed to calculate hash for Plugin Blueprint: %s"), *AssetFilePath);
             }
             
             return Hash;
         }
         else
         {
-            UE_LOG(LogEmmyLuaIntelliSense, Warning, TEXT("[HASH] Failed to convert package name to file path: %s"), *AssetPath);
+            UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("[HASH] Failed to convert package name to file path: %s"), *AssetPath);
         }
     }
     
     
     FString TypeInfo = AssetPath + TEXT("_") + FDateTime::Now().ToString();
     return FMD5::HashAnsiString(*TypeInfo);
+}
+
+FString ULuaExportManager::GetAssetHash(const UField* Field) const
+{
+    if (!Field || !IsValid(Field) || Field->HasAnyFlags(RF_BeginDestroyed | RF_FinishDestroyed))
+    {
+        return FString();
+    }
+    
+    // 对于UClass类型，使用结构签名哈希
+    if (const UClass* Class = Cast<UClass>(Field))
+    {
+        FString StructureHash = CalculateClassStructureHash(Class);
+        UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("[HASH] Native Class structure hash for %s: %s"), *Class->GetName(), *StructureHash);
+        return StructureHash;
+    }
+    
+    // 对于其他UField类型（UStruct, UEnum等），使用简单的名称和类型信息哈希
+    FString SignatureString = FString::Printf(TEXT("FieldType:%s;FieldName:%s;"), *Field->GetClass()->GetName(), *Field->GetName());
+    
+    // 如果是UStruct，也包含其属性信息
+    if (const UStruct* Struct = Cast<UStruct>(Field))
+    {
+        SignatureString += TEXT("Properties:[");
+        for (TFieldIterator<FProperty> PropertyIt(Struct, EFieldIteratorFlags::ExcludeSuper); PropertyIt; ++PropertyIt)
+        {
+            FProperty* Property = *PropertyIt;
+            if (Property)
+            {
+                SignatureString += FString::Printf(TEXT("Name:%s,Type:%s;"), *Property->GetName(), *Property->GetClass()->GetName());
+            }
+        }
+        SignatureString += TEXT("];");
+    }
+    
+    // 如果是UEnum，包含枚举值信息
+    if (const UEnum* Enum = Cast<UEnum>(Field))
+    {
+        SignatureString += TEXT("EnumValues:[");
+        for (int32 i = 0; i < Enum->NumEnums(); ++i)
+        {
+            SignatureString += FString::Printf(TEXT("Name:%s,Value:%lld;"), *Enum->GetNameStringByIndex(i), Enum->GetValueByIndex(i));
+        }
+        SignatureString += TEXT("];");
+    }
+    
+    // 使用FSHA1计算哈希
+    FSHA1 Sha1;
+    FTCHARToUTF8 UTF8String(*SignatureString);
+    Sha1.Update((const uint8*)UTF8String.Get(), UTF8String.Length());
+    Sha1.Final();
+    
+    // 转换为十六进制字符串
+    FString HashString;
+    for (int32 i = 0; i < 20; ++i)
+    {
+        HashString += FString::Printf(TEXT("%02x"), Sha1.m_digest[i]);
+    }
+    
+    UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("[HASH] Native Field structure hash for %s (%s): %s"), *Field->GetName(), *Field->GetClass()->GetName(), *HashString);
+    
+    return HashString;
 }
 
 bool ULuaExportManager::ShouldReexportByHash(const FString& AssetPath, const FString& AssetHash) const
