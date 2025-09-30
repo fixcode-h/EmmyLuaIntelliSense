@@ -729,7 +729,7 @@ void ULuaExportManager::InitializeFileWatcher()
     FDirectoryWatcherModule& DirectoryWatcherModule = FModuleManager::LoadModuleChecked<FDirectoryWatcherModule>(TEXT("DirectoryWatcher"));
     DirectoryWatcher = DirectoryWatcherModule.Get();
 
-    if (DirectoryWatcher)
+    if (DirectoryWatcher.IsValid())
     {
         
         FString EngineSourceDir = FPaths::Combine(FPaths::EngineDir(), TEXT("Source"));
@@ -755,19 +755,19 @@ void ULuaExportManager::InitializeFileWatcher()
 
 void ULuaExportManager::ShutdownFileWatcher()
 {
-    if (DirectoryWatcher)
+    if (DirectoryWatcher.IsValid())
     {
         for (const auto& Pair : WatchedDirectories)
         {
             DirectoryWatcher->UnregisterDirectoryChangedCallback_Handle(Pair.Key, Pair.Value);
         }
-        DirectoryWatcher = nullptr;
+        DirectoryWatcher.Reset();
     }
 }
 
 void ULuaExportManager::AddWatchDirectory(const FString& Directory)
 {
-    if (DirectoryWatcher && FPaths::DirectoryExists(Directory))
+    if (DirectoryWatcher.IsValid() && FPaths::DirectoryExists(Directory))
     {
         FDelegateHandle Handle;
         bool bSuccess = DirectoryWatcher->RegisterDirectoryChangedCallback_Handle(

@@ -74,7 +74,7 @@ private:
     TSet<TWeakObjectPtr<const UField>> PendingNativeTypes;
 
     /** 文件监听器 */
-    IDirectoryWatcher* DirectoryWatcher;
+    TSharedPtr<IDirectoryWatcher> DirectoryWatcher;
 
     /** 监听的目录和对应的句柄 */
     TMap<FString, FDelegateHandle> WatchedDirectories;
