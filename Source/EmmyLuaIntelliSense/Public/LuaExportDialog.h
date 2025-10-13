@@ -60,6 +60,18 @@ public:
     /** 完成进度通知 */
     static void CompleteProgressNotification(TSharedPtr<SNotificationItem> Notification, const FString& Message, bool bSuccess);
 
+    /** 显示扫描进度通知（带取消按钮） */
+    static TSharedPtr<SNotificationItem> ShowScanProgress(const FString& Message);
+
+    /** 更新扫描进度通知 */
+    static void UpdateScanProgressNotification(TSharedPtr<SNotificationItem> Notification, const FString& Message, float Progress);
+
+    /** 完成扫描进度通知 */
+    static void CompleteScanProgressNotification(TSharedPtr<SNotificationItem> Notification, const FString& Message, bool bSuccess);
+
+    /** 扫描取消回调 */
+    static void OnScanCancelled();
+
 private:
     /** 创建通知信息 */
     static FNotificationInfo CreateNotificationInfo(const FString& Message, SNotificationItem::ECompletionState CompletionState);

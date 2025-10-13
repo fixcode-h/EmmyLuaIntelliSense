@@ -15,6 +15,9 @@ public:
 	/** IModuleInterface implementation */
 	virtual void StartupModule() override;
 	virtual void ShutdownModule() override;
+	
+	/** Shows the export dialog if there are pending changes */
+	void ShowExportDialogIfNeeded();
 
 private:
 	/** Called when the engine has finished initialization */
@@ -25,9 +28,6 @@ private:
 	
 	/** Initialize the Lua Export Manager */
 	void InitializeLuaExportManager();
-	
-	/** Shows the export dialog if there are pending changes */
-	void ShowExportDialogIfNeeded();
 	
 	/** Register plugin settings */
 	void RegisterSettings();

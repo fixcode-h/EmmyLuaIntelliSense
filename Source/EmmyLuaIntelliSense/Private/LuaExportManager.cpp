@@ -15,6 +15,7 @@
 #include "Framework/Notifications/NotificationManager.h"
 #include "Widgets/Notifications/SNotificationList.h"
 #include "EmmyLuaIntelliSense.h"
+#include "Modules/ModuleManager.h"
 #include "Engine/Engine.h"
 #include "Engine/World.h"
 #include "Misc/ScopedSlowTask.h"
@@ -22,10 +23,23 @@
 #include "Serialization/JsonSerializer.h"
 #include "Serialization/JsonWriter.h"
 #include "Serialization/JsonReader.h"
+#include "Async/AsyncWork.h"
+#include "Async/Async.h"
+#include "Engine/Engine.h"
+#include "TimerManager.h"
+#include "Editor.h"
 
 ULuaExportManager::ULuaExportManager()
     : bInitialized(false)
+    , bIsAsyncScanningInProgress(false)
+    , bScanCancelled(false)
+    , bIsFramedProcessingInProgress(false)
+    , CurrentBlueprintIndex(0)
+    , CurrentNativeTypeIndex(0)
 {
+    // 初始化Hash缓存
+    FieldHashCache.Empty();
+    FieldHashCacheTimestamp.Empty();
     
     TSharedPtr<IPlugin> Plugin = IPluginManager::Get().FindPlugin(TEXT("EmmyLuaIntelliSense"));
     if (Plugin.IsValid())
@@ -84,6 +98,10 @@ void ULuaExportManager::Deinitialize()
     PendingBlueprints.Empty();
     PendingNativeTypes.Empty();
     ExportedFilesHashCache.Empty();
+    
+    // 清理Hash缓存
+    FieldHashCache.Empty();
+    FieldHashCacheTimestamp.Empty();
 
     UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("LuaExportManager shutdown."));
 }
@@ -403,8 +421,7 @@ void ULuaExportManager::ExportNativeType(const UField* Field)
     }
 
     
-    FString NativeTypePath = FString::Printf(TEXT("/Native/%s"), *FieldName);
-    UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("[EXPORT] Exporting Native Type: %s (%s)"), *NativeTypePath, *Field->GetName());
+    FString NativeTypePath = Field->GetPathName();
 
     FString LuaCode;
     if (const UClass* Class = Cast<UClass>(Field))
@@ -441,7 +458,7 @@ void ULuaExportManager::ExportNativeType(const UField* Field)
             UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("[EXPORT] Native Type exported successfully: %s -> %s/%s.lua"), *NativeTypePath, *ModuleName, *FileName);
             
             // 更新导出缓存（使用结构签名哈希）
-            FString FieldHash = GetAssetHash(Field);
+            FString FieldHash = GetCachedFieldHash(Field);
             UpdateExportCacheByHash(NativeTypePath, FieldHash);
             UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("[EXPORT] Updated cache for Native Type: %s with hash: %s"), *NativeTypePath, *FieldHash);
         }
@@ -610,8 +627,6 @@ bool ULuaExportManager::ShouldExportBlueprint(const FAssetData& AssetData, bool 
     const UEmmyLuaIntelliSenseSettings* Settings = UEmmyLuaIntelliSenseSettings::Get();
     if (Settings && !Settings->bExportBlueprintFiles)
     {
-        
-        UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("[EXPORT] Blueprint export disabled, skipping: %s"), *AssetPath);
         return false;
     }
 
@@ -704,70 +719,9 @@ FString ULuaExportManager::GetOutputDirectory() const
 
 void ULuaExportManager::ScanExistingAssets()
 {
-    
-    const UEmmyLuaIntelliSenseSettings* Settings = UEmmyLuaIntelliSenseSettings::Get();
-    if (Settings && Settings->bExportBlueprintFiles)
-    {
-        FAssetRegistryModule& AssetRegistryModule = FModuleManager::LoadModuleChecked<FAssetRegistryModule>(TEXT("AssetRegistry"));
-        TArray<FAssetData> BlueprintAssets;
-        
-        
-        FARFilter Filter;
-        Filter.ClassNames.Add(UBlueprint::StaticClass()->GetFName());
-        AssetRegistryModule.Get().GetAssets(Filter, BlueprintAssets);
-        
-        
-        UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("[SCAN] Found %d blueprint assets, checking for export..."), BlueprintAssets.Num());
-        for (const FAssetData& AssetData : BlueprintAssets)
-        {
-            AddToPendingBlueprints(AssetData);
-        }
-        UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("[SCAN] Wait To Export Count %d "), PendingBlueprints.Num());
-    }
-    
-    
-    TArray<const UField*> NativeTypes;
-    CollectNativeTypes(NativeTypes);
-    
-    
-    UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("[SCAN] Found %d native types, checking for export..."), NativeTypes.Num());
-    int32 ValidNativeTypesCount = 0;
-    int32 PendingNativeTypesCount = 0;
-    for (const UField* Field : NativeTypes)
-    {
-        FString FieldName;
-        if (IsValidFieldForExport(Field, FieldName))
-        {
-            ValidNativeTypesCount++;
-            
-            
-            FString NativeTypePath = FString::Printf(TEXT("/Native/%s"), *FieldName);
-            
-            
-            if (ShouldExcludeFromExport(NativeTypePath))
-            {
-                UE_LOG(LogEmmyLuaIntelliSense, Verbose, TEXT("[SCAN] Excluded Native Type: %s"), *NativeTypePath);
-                continue;
-            }
-            
-            
-            // 使用结构签名哈希检查原生类型是否需要重新导出
-            FString FieldHash = GetAssetHash(Field);
-            
-            if (ShouldReexportByHash(NativeTypePath, FieldHash))
-            {
-                PendingNativeTypes.Add(TWeakObjectPtr<const UField>(Field));
-                PendingNativeTypesCount++;
-                UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("[SCAN] Added Native Type to pending list: %s (Hash: %s)"), *NativeTypePath, *FieldHash);
-            }
-            else
-            {
-                UE_LOG(LogEmmyLuaIntelliSense, Verbose, TEXT("[SCAN] Native Type up-to-date, skipping: %s (Hash: %s)"), *NativeTypePath, *FieldHash);
-            }
-        }
-    }
-    
-    UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("Scanned existing assets: %d blueprints, %d pending native types (out of %d valid, %d total)"), PendingBlueprints.Num(), PendingNativeTypesCount, ValidNativeTypesCount, NativeTypes.Num());
+    // 使用异步扫描以避免阻塞主线程
+    UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("[SCAN] Starting optimized async asset scanning..."));
+    ScanExistingAssetsAsync();
 }
 
 FString ULuaExportManager::GenerateUnLuaDefinitions() const
@@ -1216,12 +1170,12 @@ FString ULuaExportManager::GetAssetHash(const FString& AssetPath) const
         FString PackageName = NormalizedAssetPath.RightChop(6); 
         FString AssetFilePath = FPaths::Combine(FPaths::ProjectContentDir(), PackageName + TEXT(".uasset"));
         
-        UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("[HASH] Calculating hash for Game Blueprint file: %s -> %s"), *AssetPath, *AssetFilePath);
+        UE_LOG(LogEmmyLuaIntelliSense, VeryVerbose, TEXT("[HASH] Calculating hash for Game Blueprint file: %s -> %s"), *AssetPath, *AssetFilePath);
         
         FString Hash = CalculateFileHash(AssetFilePath);
         if (!Hash.IsEmpty())
         {
-            UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("[HASH] Game Blueprint hash: %s"), *Hash);
+            UE_LOG(LogEmmyLuaIntelliSense, VeryVerbose, TEXT("[HASH] Game Blueprint hash: %s"), *Hash);
         }
         else
         {
@@ -1240,12 +1194,12 @@ FString ULuaExportManager::GetAssetHash(const FString& AssetPath) const
         
         if (FPackageName::TryConvertLongPackageNameToFilename(PackageName, AssetFilePath, TEXT(".uasset")))
         {
-            UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("[HASH] Calculating hash for Plugin Blueprint file: %s -> %s"), *AssetPath, *AssetFilePath);
+            UE_LOG(LogEmmyLuaIntelliSense, VeryVerbose, TEXT("[HASH] Calculating hash for Plugin Blueprint file: %s -> %s"), *AssetPath, *AssetFilePath);
             
             FString Hash = CalculateFileHash(AssetFilePath);
             if (!Hash.IsEmpty())
             {
-                UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("[HASH] Plugin Blueprint hash: %s"), *Hash);
+                UE_LOG(LogEmmyLuaIntelliSense, VeryVerbose, TEXT("[HASH] Plugin Blueprint hash: %s"), *Hash);
             }
             else
             {
@@ -1276,7 +1230,7 @@ FString ULuaExportManager::GetAssetHash(const UField* Field) const
     if (const UClass* Class = Cast<UClass>(Field))
     {
         FString StructureHash = CalculateClassStructureHash(Class);
-        UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("[HASH] Native Class structure hash for %s: %s"), *Class->GetName(), *StructureHash);
+        UE_LOG(LogEmmyLuaIntelliSense, VeryVerbose, TEXT("[HASH] Native Class structure hash for %s: %s"), *Class->GetName(), *StructureHash);
         return StructureHash;
     }
     
@@ -1322,7 +1276,7 @@ FString ULuaExportManager::GetAssetHash(const UField* Field) const
         HashString += FString::Printf(TEXT("%02x"), Sha1.m_digest[i]);
     }
     
-    UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("[HASH] Native Field structure hash for %s (%s): %s"), *Field->GetName(), *Field->GetClass()->GetName(), *HashString);
+    UE_LOG(LogEmmyLuaIntelliSense, VeryVerbose, TEXT("[HASH] Native Field structure hash for %s (%s): %s"), *Field->GetName(), *Field->GetClass()->GetName(), *HashString);
     
     return HashString;
 }
@@ -1346,11 +1300,21 @@ bool ULuaExportManager::ShouldReexportByHash(const FString& AssetPath, const FSt
     
     
     bool bShouldReexport = AssetHash != *CachedHash;
-    UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("[REEXPORT_HASH] %s: Asset hash=%s, Cache hash=%s, Should reexport=%s"), 
-        *AssetPath, 
-        *AssetHash, 
-        **CachedHash, 
-        bShouldReexport ? TEXT("YES") : TEXT("NO"));
+    if (bShouldReexport)
+    {
+        UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("[REEXPORT_HASH] %s: Asset hash=%s, Cache hash=%s, Should reexport=YES"), 
+            *AssetPath, 
+            *AssetHash, 
+            **CachedHash);
+    }
+    else
+    {
+        // 非需导出的情况不打印日志，保留为VeryVerbose便于调试
+        UE_LOG(LogEmmyLuaIntelliSense, VeryVerbose, TEXT("[REEXPORT_HASH] %s: Asset hash=%s, Cache hash=%s, Should reexport=NO"), 
+            *AssetPath, 
+            *AssetHash, 
+            **CachedHash);
+    }
     
     return bShouldReexport;
 }
@@ -1358,7 +1322,7 @@ bool ULuaExportManager::ShouldReexportByHash(const FString& AssetPath, const FSt
 void ULuaExportManager::UpdateExportCacheByHash(const FString& AssetPath, const FString& AssetHash)
 {
     ExportedFilesHashCache.Add(AssetPath, AssetHash);
-    UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("[CACHE_HASH] Updated hash cache for %s: %s"), *AssetPath, *AssetHash);
+    UE_LOG(LogEmmyLuaIntelliSense, VeryVerbose, TEXT("[CACHE_HASH] Updated hash cache for %s: %s"), *AssetPath, *AssetHash);
 }
 
 bool ULuaExportManager::ShouldExcludeFromExport(const FString& AssetPath) const
@@ -1499,4 +1463,526 @@ void ULuaExportManager::CopyUELibFolder() const
     
     UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("[COPY_UELIB] Successfully copied UELib folder from %s to %s (%d files)"), 
         *SourceUELibDir, *TargetUELibDir, CopyVisitor.CopiedFiles);
+}
+
+// ========== 异步扫描实现 ==========
+
+void ULuaExportManager::ScanExistingAssetsAsync()
+{
+    if (bIsAsyncScanningInProgress)
+    {
+        UE_LOG(LogEmmyLuaIntelliSense, Warning, TEXT("Async scanning already in progress, skipping..."));
+        return;
+    }
+    
+    UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("Starting async asset scanning..."));
+    bIsAsyncScanningInProgress = true;
+    bScanCancelled = false;
+    
+    // 显示扫描进度通知
+    ScanProgressNotification = FLuaExportNotificationManager::ShowScanProgress(TEXT("正在扫描资源..."));
+    
+    // 直接进行同步扫描
+    TArray<FAssetData> BlueprintAssets;
+    TArray<const UField*> NativeTypes;
+    
+    // 扫描蓝图资源
+    FAssetRegistryModule& AssetRegistryModule = FModuleManager::LoadModuleChecked<FAssetRegistryModule>(TEXT("AssetRegistry"));
+    FARFilter Filter;
+    Filter.ClassNames.Add(UBlueprint::StaticClass()->GetFName());
+    AssetRegistryModule.Get().GetAssets(Filter, BlueprintAssets);
+    
+    // 收集原生类型
+    CollectNativeTypes(NativeTypes);
+    
+    UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("Asset scanning completed. Found %d blueprints, %d native types"), 
+           BlueprintAssets.Num(), NativeTypes.Num());
+    
+    // 调用完成回调
+    OnAsyncScanCompleted(BlueprintAssets, NativeTypes);
+}
+
+void ULuaExportManager::OnAsyncScanCompleted(const TArray<FAssetData>& BlueprintAssets, const TArray<const UField*>& NativeTypes)
+{
+    if (!IsValid(this))
+    {
+        return;
+    }
+    
+    // 检查是否被取消
+    if (bScanCancelled)
+    {
+        UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("Asset scanning was cancelled by user"));
+        FLuaExportNotificationManager::CompleteScanProgressNotification(ScanProgressNotification, TEXT("扫描已取消"), false);
+        bIsAsyncScanningInProgress = false;
+        bScanCancelled = false;
+        ScanProgressNotification.Reset();
+        return;
+    }
+    
+    UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("Async scan completed. Found %d blueprints, %d native types"), BlueprintAssets.Num(), NativeTypes.Num());
+    
+    // 更新进度通知
+    FLuaExportNotificationManager::UpdateScanProgressNotification(ScanProgressNotification, TEXT("正在分析需要导出的资源..."), 0.8f);
+    
+    // 清空之前的待导出列表
+    PendingBlueprints.Empty();
+    PendingNativeTypes.Empty();
+    
+    // 分析蓝图资源，只添加需要导出的到待导出列表，同时更新不需要导出的项目的缓存
+    for (const FAssetData& AssetData : BlueprintAssets)
+    {
+        if (AddToPendingBlueprints(AssetData))
+        {
+            UE_LOG(LogEmmyLuaIntelliSense, Verbose, TEXT("Added blueprint to pending list: %s"), *AssetData.AssetName.ToString());
+        }
+        else
+        {
+            // 对于不需要导出的蓝图，更新其缓存哈希值
+            FString AssetHash = GetAssetHash(AssetData.ObjectPath.ToString());
+            if (!AssetHash.IsEmpty())
+            {
+                UpdateExportCacheByHash(AssetData.ObjectPath.ToString(), AssetHash);
+                UE_LOG(LogEmmyLuaIntelliSense, VeryVerbose, TEXT("Updated cache for blueprint (no export needed): %s"), *AssetData.AssetName.ToString());
+            }
+        }
+    }
+
+    // 分析原生类型，只添加需要导出的到待导出列表，同时更新不需要导出的项目的缓存
+    for (const UField* Field : NativeTypes)
+    {
+        if (Field)
+        {
+            FString FieldName;
+            if (IsValidFieldForExport(Field, FieldName))
+            {
+                FString FieldHash = GetCachedFieldHash(Field);
+                FString NativeTypePath = Field->GetPathName();
+                if (ShouldReexportByHash(NativeTypePath, FieldHash))
+                {
+                    PendingNativeTypes.Add(Field);
+                    UE_LOG(LogEmmyLuaIntelliSense, Verbose, TEXT("Added native type to pending list: %s"), *Field->GetName());
+                }
+                else
+                {
+                    UpdateExportCacheByHash(NativeTypePath, FieldHash);
+                    UE_LOG(LogEmmyLuaIntelliSense, VeryVerbose, TEXT("Updated cache for native type (no export needed): %s"), *Field->GetName());
+                }
+            }
+        }
+    }
+    
+    // 完成扫描
+    bIsAsyncScanningInProgress = false;
+    
+    // 完成进度通知
+    FLuaExportNotificationManager::CompleteScanProgressNotification(ScanProgressNotification, TEXT("扫描完成"), true);
+    ScanProgressNotification.Reset();
+    
+    UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("Scan analysis completed. Pending exports: %d blueprints, %d native types"), 
+           PendingBlueprints.Num(), PendingNativeTypes.Num());
+
+    // 保存更新的缓存信息
+    SaveExportCache();
+    UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("Export cache updated after scan"));
+
+    // 扫描完成后，检查是否需要显示导出确认对话框
+    if (FModuleManager::Get().IsModuleLoaded("EmmyLuaIntelliSense"))
+    {
+        FEmmyLuaIntelliSenseModule& Module = FModuleManager::GetModuleChecked<FEmmyLuaIntelliSenseModule>("EmmyLuaIntelliSense");
+        Module.ShowExportDialogIfNeeded();
+    }
+}
+
+void ULuaExportManager::ProcessBlueprintsInBatches(const TArray<FAssetData>& BlueprintAssets, int32 BatchSize)
+{
+    if (BlueprintAssets.Num() == 0)
+    {
+        return;
+    }
+    
+    const int32 TotalBatches = FMath::CeilToInt(static_cast<float>(BlueprintAssets.Num()) / BatchSize);
+    UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("Processing %d blueprints in %d batches (batch size: %d)"), 
+           BlueprintAssets.Num(), TotalBatches, BatchSize);
+    
+    for (int32 BatchIndex = 0; BatchIndex < TotalBatches; ++BatchIndex)
+    {
+        const int32 StartIndex = BatchIndex * BatchSize;
+        const int32 EndIndex = FMath::Min(StartIndex + BatchSize, BlueprintAssets.Num());
+        
+        TArray<FAssetData> BatchAssets;
+        for (int32 i = StartIndex; i < EndIndex; ++i)
+        {
+            BatchAssets.Add(BlueprintAssets[i]);
+        }
+        
+        // 使用定时器延迟处理每个批次，避免阻塞主线程
+        FTimerHandle TimerHandle;
+        FTimerDelegate TimerDelegate;
+        TimerDelegate.BindLambda([this, BatchAssets, BatchIndex, TotalBatches]()
+        {
+            ProcessBlueprintBatch(BatchAssets, BatchIndex, TotalBatches);
+        });
+        
+        if (GEngine && GEngine->GetWorld())
+        {
+            GEngine->GetWorld()->GetTimerManager().SetTimer(TimerHandle, TimerDelegate, 0.01f * BatchIndex, false);
+        }
+        else
+        {
+            // 如果没有World，直接处理
+            ProcessBlueprintBatch(BatchAssets, BatchIndex, TotalBatches);
+        }
+    }
+}
+
+void ULuaExportManager::ProcessNativeTypesInBatches(const TArray<const UField*>& NativeTypes, int32 BatchSize)
+{
+    if (NativeTypes.Num() == 0)
+    {
+        return;
+    }
+    
+    const int32 TotalBatches = FMath::CeilToInt(static_cast<float>(NativeTypes.Num()) / BatchSize);
+    UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("Processing %d native types in %d batches (batch size: %d)"), 
+           NativeTypes.Num(), TotalBatches, BatchSize);
+    
+    for (int32 BatchIndex = 0; BatchIndex < TotalBatches; ++BatchIndex)
+    {
+        const int32 StartIndex = BatchIndex * BatchSize;
+        const int32 EndIndex = FMath::Min(StartIndex + BatchSize, NativeTypes.Num());
+        
+        TArray<const UField*> BatchTypes;
+        for (int32 i = StartIndex; i < EndIndex; ++i)
+        {
+            BatchTypes.Add(NativeTypes[i]);
+        }
+        
+        // 使用定时器延迟处理每个批次
+        FTimerHandle TimerHandle;
+        FTimerDelegate TimerDelegate;
+        TimerDelegate.BindLambda([this, BatchTypes, BatchIndex, TotalBatches]()
+        {
+            ProcessNativeTypeBatch(BatchTypes, BatchIndex, TotalBatches);
+        });
+        
+        if (GEngine && GEngine->GetWorld())
+        {
+            GEngine->GetWorld()->GetTimerManager().SetTimer(TimerHandle, TimerDelegate, 0.02f * BatchIndex, false);
+        }
+        else
+        {
+            // 如果没有World，直接处理
+            ProcessNativeTypeBatch(BatchTypes, BatchIndex, TotalBatches);
+        }
+    }
+}
+
+void ULuaExportManager::ProcessBlueprintBatch(const TArray<FAssetData>& BatchAssets, int32 BatchIndex, int32 TotalBatches)
+{
+    if (!IsValid(this))
+    {
+        return;
+    }
+    
+    UE_LOG(LogEmmyLuaIntelliSense, Verbose, TEXT("Processing blueprint batch %d/%d (%d assets)"), 
+           BatchIndex + 1, TotalBatches, BatchAssets.Num());
+    
+    const UEmmyLuaIntelliSenseSettings* Settings = UEmmyLuaIntelliSenseSettings::Get();
+    if (!Settings || !Settings->bExportBlueprintFiles)
+    {
+        return;
+    }
+    
+    for (const FAssetData& AssetData : BatchAssets)
+    {
+        AddToPendingBlueprints(AssetData);
+    }
+}
+
+void ULuaExportManager::ProcessNativeTypeBatch(const TArray<const UField*>& BatchTypes, int32 BatchIndex, int32 TotalBatches)
+{
+    if (!IsValid(this))
+    {
+        return;
+    }
+    
+    UE_LOG(LogEmmyLuaIntelliSense, Verbose, TEXT("Processing native type batch %d/%d (%d types)"), 
+           BatchIndex + 1, TotalBatches, BatchTypes.Num());
+    
+    int32 ProcessedCount = 0;
+    for (const UField* Field : BatchTypes)
+    {
+        FString FieldName;
+        if (IsValidFieldForExport(Field, FieldName))
+        {
+            FString NativeTypePath = FString::Printf(TEXT("/Native/%s"), *FieldName);
+            
+            if (ShouldExcludeFromExport(NativeTypePath))
+            {
+                continue;
+            }
+            
+            // 计算哈希值用于判断是否需要重新导出
+            FString FieldHash = GetCachedFieldHash(Field);
+            
+            if (ShouldReexportByHash(NativeTypePath, FieldHash))
+            {
+                PendingNativeTypes.Add(TWeakObjectPtr<const UField>(Field));
+                ProcessedCount++;
+            }
+        }
+    }
+    
+    UE_LOG(LogEmmyLuaIntelliSense, Verbose, TEXT("Batch %d/%d completed: %d types added to pending list"), 
+           BatchIndex + 1, TotalBatches, ProcessedCount);
+}
+
+
+
+void ULuaExportManager::CancelAsyncScan()
+{
+    if (!bIsAsyncScanningInProgress)
+    {
+        UE_LOG(LogEmmyLuaIntelliSense, Warning, TEXT("No async scanning in progress to cancel"));
+        return;
+    }
+    
+    UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("Cancelling async asset scanning..."));
+    bScanCancelled = true;
+}
+
+void ULuaExportManager::StartFramedProcessing()
+{
+    if (bIsFramedProcessingInProgress)
+    {
+        UE_LOG(LogEmmyLuaIntelliSense, Warning, TEXT("Framed processing is already in progress"));
+        return;
+    }
+    
+    bIsFramedProcessingInProgress = true;
+    CurrentBlueprintIndex = 0;
+    CurrentNativeTypeIndex = 0;
+    
+    // 更新进度通知
+    if (ScanProgressNotification.IsValid())
+    {
+        ScanProgressNotification->SetText(FText::FromString(TEXT("开始处理扫描结果...")));
+        ScanProgressNotification->SetCompletionState(SNotificationItem::CS_Pending);
+    }
+    
+    // 启动定时器进行分帧处理
+    if (UWorld* World = GEngine->GetCurrentPlayWorld())
+    {
+        World->GetTimerManager().SetTimer(
+            FramedProcessingTimerHandle,
+            this,
+            &ULuaExportManager::ProcessFramedStepWrapper,
+            0.016f, // 60 FPS
+            true
+        );
+    }
+    else
+    {
+        // 如果没有游戏世界，使用编辑器世界
+        if (GEditor && GEditor->GetEditorWorldContext().World())
+        {
+            GEditor->GetEditorWorldContext().World()->GetTimerManager().SetTimer(
+                FramedProcessingTimerHandle,
+                this,
+                &ULuaExportManager::ProcessFramedStepWrapper,
+                0.016f, // 60 FPS
+                true
+            );
+        }
+        else
+        {
+            // 如果都没有，直接处理所有内容
+            UE_LOG(LogEmmyLuaIntelliSense, Warning, TEXT("No world available for timer, processing all at once"));
+            while (ProcessFramedStep())
+            {
+                // 继续处理直到完成
+            }
+        }
+    }
+}
+
+bool ULuaExportManager::ProcessFramedStep()
+{
+    if (!bIsFramedProcessingInProgress)
+    {
+        return false;
+    }
+    
+    const int32 ItemsPerFrame = 5; // 每帧处理的项目数量
+    int32 ProcessedThisFrame = 0;
+    
+    // 处理蓝图
+    while (CurrentBlueprintIndex < ScannedBlueprintAssets.Num() && ProcessedThisFrame < ItemsPerFrame)
+    {
+        const FAssetData& AssetData = ScannedBlueprintAssets[CurrentBlueprintIndex];
+        
+        if (UBlueprint* Blueprint = Cast<UBlueprint>(AssetData.GetAsset()))
+        {
+            ExportBlueprint(Blueprint);
+        }
+        
+        CurrentBlueprintIndex++;
+        ProcessedThisFrame++;
+        
+        // 更新进度
+        if (ScanProgressNotification.IsValid())
+        {
+            int32 TotalItems = ScannedBlueprintAssets.Num() + ScannedNativeTypes.Num();
+            int32 ProcessedItems = CurrentBlueprintIndex + CurrentNativeTypeIndex;
+            float Progress = TotalItems > 0 ? (float)ProcessedItems / TotalItems : 1.0f;
+            
+            FString ProgressText = FString::Printf(
+                TEXT("处理中... (%d/%d) - 蓝图: %d/%d, 原生类型: %d/%d"),
+                ProcessedItems,
+                TotalItems,
+                CurrentBlueprintIndex,
+                ScannedBlueprintAssets.Num(),
+                CurrentNativeTypeIndex,
+                ScannedNativeTypes.Num()
+            );
+            
+            ScanProgressNotification->SetText(FText::FromString(ProgressText));
+        }
+    }
+    
+    // 处理原生类型
+    while (CurrentNativeTypeIndex < ScannedNativeTypes.Num() && ProcessedThisFrame < ItemsPerFrame)
+    {
+        const UField* Field = ScannedNativeTypes[CurrentNativeTypeIndex];
+        ExportNativeType(Field);
+        
+        CurrentNativeTypeIndex++;
+        ProcessedThisFrame++;
+        
+        // 更新进度
+        if (ScanProgressNotification.IsValid())
+        {
+            int32 TotalItems = ScannedBlueprintAssets.Num() + ScannedNativeTypes.Num();
+            int32 ProcessedItems = CurrentBlueprintIndex + CurrentNativeTypeIndex;
+            float Progress = TotalItems > 0 ? (float)ProcessedItems / TotalItems : 1.0f;
+            
+            FString ProgressText = FString::Printf(
+                TEXT("处理中... (%d/%d) - 蓝图: %d/%d, 原生类型: %d/%d"),
+                ProcessedItems,
+                TotalItems,
+                CurrentBlueprintIndex,
+                ScannedBlueprintAssets.Num(),
+                CurrentNativeTypeIndex,
+                ScannedNativeTypes.Num()
+            );
+            
+            ScanProgressNotification->SetText(FText::FromString(ProgressText));
+        }
+    }
+    
+    // 检查是否完成
+    if (CurrentBlueprintIndex >= ScannedBlueprintAssets.Num() && 
+        CurrentNativeTypeIndex >= ScannedNativeTypes.Num())
+    {
+        return false; // 处理完成
+    }
+    
+    return true; // 还有更多内容需要处理
+}
+
+void ULuaExportManager::ProcessFramedStepWrapper()
+{
+    if (!ProcessFramedStep())
+    {
+        // 如果处理完成，停止定时器并清理
+        CompleteFramedProcessing();
+    }
+}
+
+void ULuaExportManager::CompleteFramedProcessing()
+{
+    bIsFramedProcessingInProgress = false;
+    
+    // 清理定时器
+    if (UWorld* World = GEngine->GetCurrentPlayWorld())
+    {
+        World->GetTimerManager().ClearTimer(FramedProcessingTimerHandle);
+    }
+    else if (GEditor && GEditor->GetEditorWorldContext().World())
+    {
+        GEditor->GetEditorWorldContext().World()->GetTimerManager().ClearTimer(FramedProcessingTimerHandle);
+    }
+    
+    // 清理扫描结果
+    ScannedBlueprintAssets.Empty();
+    ScannedNativeTypes.Empty();
+    CurrentBlueprintIndex = 0;
+    CurrentNativeTypeIndex = 0;
+    
+    // 保存导出缓存
+    SaveExportCache();
+    
+    // 更新进度通知
+    if (ScanProgressNotification.IsValid())
+    {
+        ScanProgressNotification->SetText(FText::FromString(TEXT("导出完成！")));
+        ScanProgressNotification->SetCompletionState(SNotificationItem::CS_Success);
+        ScanProgressNotification->ExpireAndFadeout();
+        ScanProgressNotification.Reset();
+    }
+    
+    UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("Framed processing completed successfully"));
+}
+
+FString ULuaExportManager::GetCachedFieldHash(const UField* Field) const
+{
+    if (!Field)
+    {
+        return FString();
+    }
+    
+    // 清理过期缓存
+    CleanupExpiredHashCache();
+    
+    // 检查缓存
+    if (FieldHashCache.Contains(Field))
+    {
+        double* CachedTime = FieldHashCacheTimestamp.Find(Field);
+        if (CachedTime && (FPlatformTime::Seconds() - *CachedTime) < HASH_CACHE_EXPIRE_TIME)
+        {
+            return FieldHashCache[Field];
+        }
+    }
+    
+    // 计算新的Hash值
+    FString Hash = GetAssetHash(Field);
+    
+    // 更新缓存
+    FieldHashCache.Add(Field, Hash);
+    FieldHashCacheTimestamp.Add(Field, FPlatformTime::Seconds());
+    
+    return Hash;
+}
+
+void ULuaExportManager::CleanupExpiredHashCache() const
+{
+    double CurrentTime = FPlatformTime::Seconds();
+    TArray<const UField*> ExpiredKeys;
+    
+    // 查找过期的条目
+    for (const auto& Pair : FieldHashCacheTimestamp)
+    {
+        if (CurrentTime - Pair.Value > HASH_CACHE_EXPIRE_TIME)
+        {
+            ExpiredKeys.Add(Pair.Key);
+        }
+    }
+    
+    // 移除过期的条目
+    for (const UField* Key : ExpiredKeys)
+    {
+        FieldHashCache.Remove(Key);
+        FieldHashCacheTimestamp.Remove(Key);
+    }
 }

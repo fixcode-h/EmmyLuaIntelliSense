@@ -53,6 +53,24 @@ public:
     
     /** 扫描现有资源并添加到待导出列表 */
     void ScanExistingAssets();
+    
+    /** 异步扫描现有资源并添加到待导出列表 */
+    void ScanExistingAssetsAsync();
+    
+    /** 取消异步扫描 */
+    void CancelAsyncScan();
+    
+    /** 启动分帧处理 */
+    void StartFramedProcessing();
+    
+    /** 分帧处理单步执行 */
+    bool ProcessFramedStep();
+    
+    /** Timer包装函数 */
+    void ProcessFramedStepWrapper();
+    
+    /** 完成分帧处理 */
+    void CompleteFramedProcessing();
 
 private:
     // ========== 成员变量 ==========
@@ -74,6 +92,29 @@ private:
 
     /** 已导出文件的哈希值缓存 */
     TMap<FString, FString> ExportedFilesHashCache;
+    
+    /** UField的Hash缓存 */
+    mutable TMap<const UField*, FString> FieldHashCache;
+    
+    /** UField Hash缓存的时间戳 */
+    mutable TMap<const UField*, double> FieldHashCacheTimestamp;
+    
+    /** 异步扫描相关 */
+    bool bIsAsyncScanningInProgress;
+    
+    /** 扫描进度通知 */
+    TSharedPtr<class SNotificationItem> ScanProgressNotification;
+    
+    /** 扫描是否被用户取消 */
+    bool bScanCancelled;
+    
+    /** 分帧处理相关 */
+    TArray<FAssetData> ScannedBlueprintAssets;
+    TArray<const UField*> ScannedNativeTypes;
+    bool bIsFramedProcessingInProgress;
+    int32 CurrentBlueprintIndex;
+    int32 CurrentNativeTypeIndex;
+    FTimerHandle FramedProcessingTimerHandle;
 
     // ========== 核心导出功能 ==========
     
@@ -134,8 +175,17 @@ private:
     /** 检查文件是否需要重新导出（基于哈希值） */
     bool ShouldReexportByHash(const FString& AssetPath, const FString& AssetHash) const;
     
-    /** 更新文件导出缓存（基于哈希值） */
+    /** 更新导出缓存中的Hash值 */
     void UpdateExportCacheByHash(const FString& AssetPath, const FString& AssetHash);
+    
+    /** 获取UField的缓存哈希值（带缓存优化） */
+    FString GetCachedFieldHash(const UField* Field) const;
+    
+    /** 清理过期的Hash缓存 */
+    void CleanupExpiredHashCache() const;
+    
+    /** 缓存失效时间（秒） */
+    static constexpr double HASH_CACHE_EXPIRE_TIME = 300.0; // 5分钟
 
     // ========== 哈希计算 ==========
     
@@ -150,6 +200,8 @@ private:
     
     /** 获取UField的哈希值（用于原生类型） */
     FString GetAssetHash(const UField* Field) const;
+    
+
 
     // ========== 辅助功能 ==========
     
@@ -158,4 +210,21 @@ private:
 
     /** 从JSON文件加载排除路径列表 */
     void LoadExcludedPathsFromFile(TArray<FString>& OutExcludedPaths) const;
+    
+    // ========== 异步扫描辅助功能 ==========
+    
+    /** 异步扫描完成回调 */
+    void OnAsyncScanCompleted(const TArray<FAssetData>& BlueprintAssets, const TArray<const UField*>& NativeTypes);
+    
+    /** 分批处理蓝图资源 */
+    void ProcessBlueprintsInBatches(const TArray<FAssetData>& BlueprintAssets, int32 BatchSize = 50);
+    
+    /** 分批处理原生类型 */
+    void ProcessNativeTypesInBatches(const TArray<const UField*>& NativeTypes, int32 BatchSize = 100);
+    
+    /** 处理单批蓝图资源 */
+    void ProcessBlueprintBatch(const TArray<FAssetData>& BatchAssets, int32 BatchIndex, int32 TotalBatches);
+    
+    /** 处理单批原生类型 */
+    void ProcessNativeTypeBatch(const TArray<const UField*>& BatchTypes, int32 BatchIndex, int32 TotalBatches);
 };

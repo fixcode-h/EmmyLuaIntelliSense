@@ -82,7 +82,7 @@ void FEmmyLuaIntelliSenseModule::InitializeLuaExportManager()
 	
 	ExportManager->ScanExistingAssets();
 	
-	ShowExportDialogIfNeeded();
+	// ShowExportDialogIfNeeded will be called automatically after async scan completes
 }
 
 void FEmmyLuaIntelliSenseModule::ShowExportDialogIfNeeded()

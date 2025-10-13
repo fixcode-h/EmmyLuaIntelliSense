@@ -219,3 +219,55 @@ void FLuaExportNotificationManager::OnExportSkipped()
         CurrentConfirmationNotification.Reset();
     }
 }
+
+TSharedPtr<SNotificationItem> FLuaExportNotificationManager::ShowScanProgress(const FString& Message)
+{
+    FNotificationInfo Info(FText::FromString(Message));
+    Info.bFireAndForget = false;
+    Info.bUseLargeFont = false;
+    Info.bUseThrobber = true;
+    Info.bUseSuccessFailIcons = false;
+    Info.FadeOutDuration = 1.0f;
+    Info.ExpireDuration = 0.0f; // 不自动过期
+    
+    // 添加取消按钮
+    Info.ButtonDetails.Add(FNotificationButtonInfo(
+        FText::FromString(TEXT("取消")),
+        FText::FromString(TEXT("取消当前扫描操作")),
+        FSimpleDelegate::CreateStatic(&FLuaExportNotificationManager::OnScanCancelled),
+        SNotificationItem::CS_Pending
+    ));
+
+    return FSlateNotificationManager::Get().AddNotification(Info);
+}
+
+void FLuaExportNotificationManager::UpdateScanProgressNotification(TSharedPtr<SNotificationItem> Notification, const FString& Message, float Progress)
+{
+    if (Notification.IsValid())
+    {
+        Notification->SetText(FText::FromString(Message));
+        Notification->SetCompletionState(Progress < 1.0f ? SNotificationItem::CS_Pending : SNotificationItem::CS_Success);
+    }
+}
+
+void FLuaExportNotificationManager::CompleteScanProgressNotification(TSharedPtr<SNotificationItem> Notification, const FString& Message, bool bSuccess)
+{
+    if (Notification.IsValid())
+    {
+        Notification->SetText(FText::FromString(Message));
+        Notification->SetCompletionState(bSuccess ? SNotificationItem::CS_Success : SNotificationItem::CS_Fail);
+        Notification->SetFadeOutDuration(3.0f);
+        Notification->ExpireAndFadeout();
+    }
+}
+
+void FLuaExportNotificationManager::OnScanCancelled()
+{
+    UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("User cancelled asset scanning."));
+    
+    // 通知导出管理器取消扫描
+    if (ULuaExportManager* ExportManager = GEditor->GetEditorSubsystem<ULuaExportManager>())
+    {
+        ExportManager->CancelAsyncScan();
+    }
+}
