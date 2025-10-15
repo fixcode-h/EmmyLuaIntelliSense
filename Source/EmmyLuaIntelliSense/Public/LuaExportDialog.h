@@ -24,6 +24,9 @@ public:
     
     /** 显示导出确认对话框（分别显示蓝图、原生类型和核心文件数量） */
     static void ShowExportConfirmation(int32 BlueprintCount, int32 NativeTypeCount, int32 CoreFileCount);
+    
+    /** 显示扫描确认对话框（询问用户是否开始扫描） */
+    static void ShowScanConfirmation();
 };
 
 /**
@@ -35,6 +38,9 @@ class EMMYLUAINTELLISENSE_API FLuaExportNotificationManager
 public:
     /** 显示导出确认通知 */
     static TSharedPtr<SNotificationItem> ShowExportConfirmation(const FString& Message);
+    
+    /** 显示扫描确认通知 */
+    static TSharedPtr<SNotificationItem> ShowScanConfirmation(const FString& Message);
 
     /** 显示导出成功通知 */
     static TSharedPtr<SNotificationItem> ShowExportSuccess(const FString& Message);
@@ -50,6 +56,12 @@ public:
 
     /** 导出跳过回调 */
     static void OnExportSkipped();
+    
+    /** 扫描确认回调 */
+    static void OnScanConfirmed();
+    
+    /** 扫描跳过回调 */
+    static void OnScanSkipped();
 
     /** 显示导出进度通知 */
     static TSharedPtr<SNotificationItem> ShowExportProgress(const FString& Message);

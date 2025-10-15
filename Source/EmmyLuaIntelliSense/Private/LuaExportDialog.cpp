@@ -95,6 +95,14 @@ void FLuaExportDialog::ShowExportConfirmation(int32 BlueprintCount, int32 Native
     FLuaExportNotificationManager::ShowExportConfirmation(Message);
 }
 
+void FLuaExportDialog::ShowScanConfirmation()
+{
+    const FString Message = TEXT("是否要开始扫描项目资源以检查需要导出的Lua IntelliSense文件？");
+    
+    // 使用通知管理器显示扫描确认对话框
+    FLuaExportNotificationManager::ShowScanConfirmation(Message);
+}
+
 // FLuaExportNotificationManager Implementation
 
 TSharedPtr<SNotificationItem> FLuaExportNotificationManager::ShowExportConfirmation(const FString& Message)
@@ -126,6 +134,39 @@ TSharedPtr<SNotificationItem> FLuaExportNotificationManager::ShowExportConfirmat
 
     TSharedPtr<SNotificationItem> NotificationPtr = FSlateNotificationManager::Get().AddNotification(Info);
     CurrentConfirmationNotification = NotificationPtr; // 假设 CurrentConfirmationNotification 是 TWeakPtr
+    CurrentConfirmationNotification->SetCompletionState(SNotificationItem::CS_Pending);
+    return NotificationPtr;
+}
+
+TSharedPtr<SNotificationItem> FLuaExportNotificationManager::ShowScanConfirmation(const FString& Message)
+{
+    FNotificationInfo Info(FText::FromString(Message));
+    
+    Info.ExpireDuration = 10.0f; // 10秒后自动消失
+    
+    Info.bFireAndForget = false;
+    Info.bUseLargeFont = false;
+    Info.bUseThrobber = false;
+    Info.bUseSuccessFailIcons = false;
+    Info.FadeOutDuration = 1.0f;
+    
+    FNotificationButtonInfo Button1(
+        FText::FromString(TEXT("开始扫描")),
+        FText::FromString(TEXT("开始扫描项目资源")),
+        FSimpleDelegate::CreateStatic(&FLuaExportNotificationManager::OnScanConfirmed) 
+    );
+    
+    FNotificationButtonInfo Button2(
+        FText::FromString(TEXT("跳过")), // 按钮文本
+        FText::FromString(TEXT("跳过此次扫描")), // 工具提示
+        FSimpleDelegate::CreateStatic(&FLuaExportNotificationManager::OnScanSkipped) // 回调
+    );
+    
+    Info.ButtonDetails.Add(Button1);
+    Info.ButtonDetails.Add(Button2);
+
+    TSharedPtr<SNotificationItem> NotificationPtr = FSlateNotificationManager::Get().AddNotification(Info);
+    CurrentConfirmationNotification = NotificationPtr;
     CurrentConfirmationNotification->SetCompletionState(SNotificationItem::CS_Pending);
     return NotificationPtr;
 }
@@ -212,6 +253,34 @@ void FLuaExportNotificationManager::OnExportSkipped()
 {
     UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("User skipped Lua export via notification."));
 
+    if (CurrentConfirmationNotification.IsValid())
+    {
+        CurrentConfirmationNotification->SetCompletionState(SNotificationItem::CS_None);
+        CurrentConfirmationNotification->ExpireAndFadeout();
+        CurrentConfirmationNotification.Reset();
+    }
+}
+
+void FLuaExportNotificationManager::OnScanConfirmed()
+{
+    // 关闭确认通知
+    if (CurrentConfirmationNotification.IsValid())
+    {
+        CurrentConfirmationNotification->SetCompletionState(SNotificationItem::CS_Success);
+        CurrentConfirmationNotification->ExpireAndFadeout();
+        CurrentConfirmationNotification.Reset();
+    }
+    
+    // 获取导出管理器并开始异步扫描
+    if (ULuaExportManager* ExportManager = ULuaExportManager::Get())
+    {
+        ExportManager->ScanExistingAssetsAsync();
+    }
+}
+
+void FLuaExportNotificationManager::OnScanSkipped()
+{
+    // 关闭确认通知
     if (CurrentConfirmationNotification.IsValid())
     {
         CurrentConfirmationNotification->SetCompletionState(SNotificationItem::CS_None);

@@ -80,9 +80,16 @@ void FEmmyLuaIntelliSenseModule::InitializeLuaExportManager()
 		return;
 	}
 	
-	ExportManager->ScanExistingAssets();
-	
-	// ShowExportDialogIfNeeded will be called automatically after async scan completes
+	// 检查设置，决定是否自动开始扫描
+	const UEmmyLuaIntelliSenseSettings* Settings = UEmmyLuaIntelliSenseSettings::Get();
+	if (Settings && Settings->bAutoStartScanOnStartup)
+	{
+		ExportManager->ScanExistingAssetsAsync();
+	}
+	else
+	{
+		FLuaExportDialog::ShowScanConfirmation();
+	}
 }
 
 void FEmmyLuaIntelliSenseModule::ShowExportDialogIfNeeded()

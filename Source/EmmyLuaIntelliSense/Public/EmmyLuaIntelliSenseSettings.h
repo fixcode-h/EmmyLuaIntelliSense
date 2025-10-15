@@ -59,6 +59,12 @@ public:
                 ToolTip = "Show export notification when editor starts up"))
     bool bShowExportNotificationOnStartup = true;
     
+    /** 是否在编辑器启动时自动开始扫描 */
+    UPROPERTY(EditAnywhere, config, Category = "UI Settings", 
+        meta = (DisplayName = "Auto Start Scan on Editor Startup", 
+                ToolTip = "If enabled, automatically start scanning when editor starts. If disabled, show a confirmation dialog first."))
+    bool bAutoStartScanOnStartup = false;
+    
     /** 导出通知显示时间（秒） */
     UPROPERTY(EditAnywhere, config, Category = "UI Settings", 
         meta = (DisplayName = "Notification Display Duration", 

@@ -216,15 +216,5 @@ private:
     /** 异步扫描完成回调 */
     void OnAsyncScanCompleted(const TArray<FAssetData>& BlueprintAssets, const TArray<const UField*>& NativeTypes);
     
-    /** 分批处理蓝图资源 */
-    void ProcessBlueprintsInBatches(const TArray<FAssetData>& BlueprintAssets, int32 BatchSize = 50);
-    
-    /** 分批处理原生类型 */
-    void ProcessNativeTypesInBatches(const TArray<const UField*>& NativeTypes, int32 BatchSize = 100);
-    
-    /** 处理单批蓝图资源 */
-    void ProcessBlueprintBatch(const TArray<FAssetData>& BatchAssets, int32 BatchIndex, int32 TotalBatches);
-    
-    /** 处理单批原生类型 */
-    void ProcessNativeTypeBatch(const TArray<const UField*>& BatchTypes, int32 BatchIndex, int32 TotalBatches);
+
 };
