@@ -1191,39 +1191,119 @@ void ULuaExportManager::OnAsyncScanCompleted(const TArray<FAssetData>& Blueprint
     }
     UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("Async scan completed. Found %d blueprints, %d native types"), BlueprintAssets.Num(), NativeTypes.Num());
     
-    // 检查设置，决定分析消息
-    const UEmmyLuaIntelliSenseSettings* Settings = UEmmyLuaIntelliSenseSettings::Get();
-    bool bShouldAnalyzeBlueprints = Settings && Settings->bExportBlueprintFiles;
-
-    PendingBlueprints.Empty();
-    PendingNativeTypes.Empty();
-    
-    // 计算总项目数（只包括需要分析的项目）
-    int32 TotalItems = (bShouldAnalyzeBlueprints ? BlueprintAssets.Num() : 0) + NativeTypes.Num();
-    int32 ProcessedItems = 0;
-    
-    // 分析蓝图（如果启用）
-    if (bShouldAnalyzeBlueprints)
+    // 更新通知显示开始分析阶段
+    if (ScanProgressNotification.IsValid())
     {
-        int32 BlueprintIndex = 0;
-        for (const FAssetData& AssetData : BlueprintAssets)
+        FLuaExportNotificationManager::UpdateScanProgressNotification(ScanProgressNotification, TEXT("开始分析资产..."), 0.8f);
+    }
+    
+    // 将分析过程移到后台线程，以便能够显示进度更新
+    AsyncTask(ENamedThreads::AnyBackgroundThreadNormalTask, [this, BlueprintAssets, NativeTypes]()
+    {
+        // 检查设置，决定分析消息
+        const UEmmyLuaIntelliSenseSettings* Settings = UEmmyLuaIntelliSenseSettings::Get();
+        bool bShouldAnalyzeBlueprints = Settings && Settings->bExportBlueprintFiles;
+
+        TArray<FString> LocalPendingBlueprints;
+         TArray<TWeakObjectPtr<const UField>> LocalPendingNativeTypes;
+        
+        // 计算总项目数（只包括需要分析的项目）
+        int32 TotalItems = (bShouldAnalyzeBlueprints ? BlueprintAssets.Num() : 0) + NativeTypes.Num();
+        int32 ProcessedItems = 0;
+        
+        // 分析蓝图（如果启用）
+        if (bShouldAnalyzeBlueprints)
         {
-            ProcessedItems++;
-            BlueprintIndex++;
-            
-            if (!AddToPendingBlueprints(AssetData))
+            int32 BlueprintIndex = 0;
+            for (const FAssetData& AssetData : BlueprintAssets)
             {
-                FString AssetHash = GetAssetHash(AssetData.ObjectPath.ToString());
-                if (!AssetHash.IsEmpty())
+                // 检查是否被取消
+                if (bScanCancelled)
                 {
-                    UpdateExportCacheByHash(AssetData.ObjectPath.ToString(), AssetHash);
+                    return;
+                }
+                
+                ProcessedItems++;
+                BlueprintIndex++;
+                
+                // 检查是否需要添加到待处理列表
+                bool bShouldAddToPending = true;
+                FString AssetPath = AssetData.ObjectPath.ToString();
+                
+                // 检查是否应该排除
+                if (ShouldExcludeFromExport(AssetPath))
+                {
+                    bShouldAddToPending = false;
+                }
+                else
+                {
+                    // 检查哈希是否已更新
+                    FString AssetHash = GetAssetHash(AssetPath);
+                    if (!AssetHash.IsEmpty() && !ShouldReexportByHash(AssetPath, AssetHash))
+                    {
+                        bShouldAddToPending = false;
+                        // 在后台线程中不能直接调用UpdateExportCacheByHash，需要在主线程中处理
+                    }
+                }
+                
+                if (bShouldAddToPending)
+                 {
+                     LocalPendingBlueprints.Add(AssetPath);
+                 }
+                
+                // 每处理完一个蓝图都更新进度显示
+                float Progress = 0.8f + (0.15f * ProcessedItems / TotalItems);
+                FString ProgressMessage = FString::Printf(TEXT("分析蓝图进度: %d/%d (总计: %d/%d)"), 
+                    BlueprintIndex, BlueprintAssets.Num(), ProcessedItems, TotalItems);
+                
+                // 使用异步调用更新UI，避免阻塞分析线程
+                AsyncTask(ENamedThreads::GameThread, [this, ProgressMessage, Progress]()
+                {
+                    if (ScanProgressNotification.IsValid())
+                    {
+                        FLuaExportNotificationManager::UpdateScanProgressNotification(ScanProgressNotification, ProgressMessage, Progress);
+                    }
+                });
+                
+                // 添加小延迟以确保UI更新可见
+                if (BlueprintIndex % 10 == 0)
+                {
+                    FPlatformProcess::Sleep(0.01f); // 10ms延迟
+                }
+            }
+        }
+        
+        // 分析原生类型
+        int32 NativeTypeIndex = 0;
+        for (const UField* Field : NativeTypes)
+        {
+            // 检查是否被取消
+            if (bScanCancelled)
+            {
+                return;
+            }
+            
+            ProcessedItems++;
+            NativeTypeIndex++;
+            
+            if (Field)
+            {
+                FString FieldName;
+                if (IsValidFieldForExport(Field, FieldName))
+                {
+                    FString FieldHash = GetCachedFieldHash(Field);
+                    FString NativeTypePath = Field->GetPathName();
+                    if (ShouldReexportByHash(NativeTypePath, FieldHash))
+                     {
+                         LocalPendingNativeTypes.Add(TWeakObjectPtr<const UField>(Field));
+                     }
+                    // 注意：UpdateExportCacheByHash 需要在主线程中调用
                 }
             }
             
-            // 每处理完一个蓝图都更新进度显示
             float Progress = 0.8f + (0.15f * ProcessedItems / TotalItems);
-            FString ProgressMessage = FString::Printf(TEXT("分析蓝图进度: %d/%d (总计: %d/%d)"), 
-                BlueprintIndex, BlueprintAssets.Num(), ProcessedItems, TotalItems);
+            FString ProgressMessage = FString::Printf(TEXT("分析原生类型进度: %d/%d (总计: %d/%d)"), 
+                NativeTypeIndex, NativeTypes.Num(), ProcessedItems, TotalItems);
             
             // 使用异步调用更新UI，避免阻塞分析线程
             AsyncTask(ENamedThreads::GameThread, [this, ProgressMessage, Progress]()
@@ -1233,72 +1313,92 @@ void ULuaExportManager::OnAsyncScanCompleted(const TArray<FAssetData>& Blueprint
                     FLuaExportNotificationManager::UpdateScanProgressNotification(ScanProgressNotification, ProgressMessage, Progress);
                 }
             });
-        }
-    }
-    
-    // 分析原生类型
-    int32 NativeTypeIndex = 0;
-    for (const UField* Field : NativeTypes)
-    {
-        ProcessedItems++;
-        NativeTypeIndex++;
-        
-        if (Field)
-        {
-            FString FieldName;
-            if (IsValidFieldForExport(Field, FieldName))
+            
+            // 添加小延迟以确保UI更新可见
+            if (NativeTypeIndex % 50 == 0)
             {
-                FString FieldHash = GetCachedFieldHash(Field);
-                FString NativeTypePath = Field->GetPathName();
-                if (ShouldReexportByHash(NativeTypePath, FieldHash))
+                FPlatformProcess::Sleep(0.01f); // 10ms延迟
+            }
+        }
+        
+        // 回到主线程完成分析
+        AsyncTask(ENamedThreads::GameThread, [this, LocalPendingBlueprints, LocalPendingNativeTypes, BlueprintAssets, NativeTypes]()
+        {
+            if (bScanCancelled)
+            {
+                UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("Asset analysis was cancelled by user"));
+                FLuaExportNotificationManager::CompleteScanProgressNotification(ScanProgressNotification, TEXT("分析已取消"), false);
+                bIsAsyncScanningInProgress = false;
+                bScanCancelled = false;
+                ScanProgressNotification.Reset();
+                return;
+            }
+            
+            // 更新待处理列表
+            PendingBlueprints.Empty();
+            PendingNativeTypes.Empty();
+            PendingBlueprints.Append(LocalPendingBlueprints);
+            PendingNativeTypes.Append(LocalPendingNativeTypes);
+            
+            // 更新缓存（需要在主线程中执行）
+             for (const FAssetData& AssetData : BlueprintAssets)
+             {
+                 FString AssetPath = AssetData.ObjectPath.ToString();
+                 if (!LocalPendingBlueprints.Contains(AssetPath))
+                 {
+                     FString AssetHash = GetAssetHash(AssetPath);
+                     if (!AssetHash.IsEmpty())
+                     {
+                         UpdateExportCacheByHash(AssetPath, AssetHash);
+                     }
+                 }
+             }
+            
+            for (const UField* Field : NativeTypes)
+             {
+                 if (Field && !LocalPendingNativeTypes.Contains(TWeakObjectPtr<const UField>(Field)))
+                 {
+                     FString FieldName;
+                     if (IsValidFieldForExport(Field, FieldName))
+                     {
+                         FString FieldHash = GetCachedFieldHash(Field);
+                         FString NativeTypePath = Field->GetPathName();
+                         if (!ShouldReexportByHash(NativeTypePath, FieldHash))
+                         {
+                             UpdateExportCacheByHash(NativeTypePath, FieldHash);
+                         }
+                     }
+                 }
+             }
+            
+            bIsAsyncScanningInProgress = false;
+            FString CompletionMessage = FString::Printf(TEXT("扫描完成！发现 %d 个待导出项"), PendingBlueprints.Num() + PendingNativeTypes.Num());
+            FLuaExportNotificationManager::CompleteScanProgressNotification(ScanProgressNotification, CompletionMessage, true);
+            ScanProgressNotification.Reset();
+
+            SaveExportCache();
+
+            // 检查是否有待导出的文件
+            if (HasPendingChanges())
+            {
+                // 获取设置以确定后续行为
+                const UEmmyLuaIntelliSenseSettings* ExportSettings = UEmmyLuaIntelliSenseSettings::Get();
+                if (ExportSettings && ExportSettings->bAutoStartScanOnStartup)
                 {
-                    PendingNativeTypes.Add(Field);
+                    // 自动扫描模式：显示导出确认对话框让用户选择
+                    if (FModuleManager::Get().IsModuleLoaded("EmmyLuaIntelliSense"))
+                    {
+                        FEmmyLuaIntelliSenseModule& Module = FModuleManager::GetModuleChecked<FEmmyLuaIntelliSenseModule>("EmmyLuaIntelliSense");
+                        Module.ShowExportDialogIfNeeded();
+                    }
                 }
                 else
                 {
-                    UpdateExportCacheByHash(NativeTypePath, FieldHash);
+                    ExportIncremental();
                 }
             }
-        }
-        float Progress = 0.8f + (0.15f * ProcessedItems / TotalItems);
-        FString ProgressMessage = FString::Printf(TEXT("分析原生类型进度: %d/%d (总计: %d/%d)"), 
-            NativeTypeIndex, NativeTypes.Num(), ProcessedItems, TotalItems);
-        
-        // 使用异步调用更新UI，避免阻塞分析线程
-        AsyncTask(ENamedThreads::GameThread, [this, ProgressMessage, Progress]()
-        {
-            if (ScanProgressNotification.IsValid())
-            {
-                FLuaExportNotificationManager::UpdateScanProgressNotification(ScanProgressNotification, ProgressMessage, Progress);
-            }
         });
-    }
-    bIsAsyncScanningInProgress = false;
-    FString CompletionMessage = FString::Printf(TEXT("扫描完成！发现 %d 个待导出项"), PendingBlueprints.Num() + PendingNativeTypes.Num());
-    FLuaExportNotificationManager::CompleteScanProgressNotification(ScanProgressNotification, CompletionMessage, true);
-    ScanProgressNotification.Reset();
-
-    SaveExportCache();
-
-    // 检查是否有待导出的文件
-    if (HasPendingChanges())
-    {
-        // 获取设置以确定后续行为
-        const UEmmyLuaIntelliSenseSettings* ExportSettings = UEmmyLuaIntelliSenseSettings::Get();
-        if (ExportSettings && ExportSettings->bAutoStartScanOnStartup)
-        {
-            // 自动扫描模式：显示导出确认对话框让用户选择
-            if (FModuleManager::Get().IsModuleLoaded("EmmyLuaIntelliSense"))
-            {
-                FEmmyLuaIntelliSenseModule& Module = FModuleManager::GetModuleChecked<FEmmyLuaIntelliSenseModule>("EmmyLuaIntelliSense");
-                Module.ShowExportDialogIfNeeded();
-            }
-        }
-        else
-        {
-            ExportIncremental();
-        }
-    }
+    });
 }
 
 void ULuaExportManager::CancelAsyncScan()
