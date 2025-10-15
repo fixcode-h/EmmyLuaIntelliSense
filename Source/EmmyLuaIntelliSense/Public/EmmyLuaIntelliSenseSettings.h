@@ -4,18 +4,7 @@
 #include "Engine/DeveloperSettings.h"
 #include "EmmyLuaIntelliSenseSettings.generated.h"
 
-/**
- * 文件比较方法枚举
- */
-UENUM(BlueprintType)
-enum class EFileComparisonMethod : uint8
-{
-    /** 使用文件修改时间戳比较 */
-    Timestamp UMETA(DisplayName = "File Timestamp"),
-    
-    /** 使用文件哈希值比较 */
-    Hash UMETA(DisplayName = "File Hash")
-};
+
 
 /**
  * EmmyLua IntelliSense 插件设置
@@ -35,12 +24,6 @@ public:
     static UEmmyLuaIntelliSenseSettings* GetMutable();
 
 public:
-    /** 文件比较方法 */
-    UPROPERTY(EditAnywhere, config, Category = "Export Settings", 
-        meta = (DisplayName = "File Comparison Method", 
-                ToolTip = "Choose how to detect file changes: Timestamp (faster) or Hash (more accurate)"))
-    EFileComparisonMethod FileComparisonMethod = EFileComparisonMethod::Timestamp;
-    
     /** 是否导出蓝图文件 */
     UPROPERTY(EditAnywhere, config, Category = "Export Settings", 
         meta = (DisplayName = "Export Blueprints", 
