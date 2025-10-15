@@ -1,4 +1,4 @@
-﻿// Copyright Epic Games, Inc. All Rights Reserved.
+// Copyright Epic Games, Inc. All Rights Reserved.
 
 #include "LuaExportManager.h"
 #include "LuaCodeGenerator.h"
@@ -261,7 +261,6 @@ bool ULuaExportManager::AddToPendingBlueprints(const FAssetData& AssetData)
     FString AssetPath = AssetData.ObjectPath.ToString();
     if (PendingBlueprints.Contains(AssetPath))
     {
-        UE_LOG(LogEmmyLuaIntelliSense, VeryVerbose, TEXT("[PENDING] Blueprint already in pending list, skipping: %s"), *AssetPath);
         return false;
     }
     FString PackageName = AssetPath;
@@ -273,13 +272,11 @@ bool ULuaExportManager::AddToPendingBlueprints(const FAssetData& AssetData)
         if (PathWithoutClass.EndsWith("/" + ClassName))
         {
             PackageName = PathWithoutClass;
-            UE_LOG(LogEmmyLuaIntelliSense, VeryVerbose, TEXT("[PATH] Normalized blueprint path: %s -> %s"), *AssetPath, *PackageName);
         }
     }
     FString AssetFilePath;
     if (!FPackageName::TryConvertLongPackageNameToFilename(PackageName, AssetFilePath, TEXT(".uasset")))
     {
-        UE_LOG(LogEmmyLuaIntelliSense, VeryVerbose, TEXT("[PATH] Failed to convert package name to file path: %s"), *PackageName);
         return false;
     }
     if (!FPaths::FileExists(AssetFilePath))
@@ -291,7 +288,6 @@ bool ULuaExportManager::AddToPendingBlueprints(const FAssetData& AssetData)
         return false;
     }
     PendingBlueprints.Add(AssetPath);
-    UE_LOG(LogEmmyLuaIntelliSense, Verbose, TEXT("[PENDING] Added Blueprint to pending list: %s (Total: %d)"), *AssetPath, PendingBlueprints.Num());
     return true;
 }
 void ULuaExportManager::ExportBlueprint(const UBlueprint* Blueprint)
@@ -1128,29 +1124,48 @@ void ULuaExportManager::ScanExistingAssetsAsync()
 {
     if (bIsAsyncScanningInProgress)
     {
-        UE_LOG(LogEmmyLuaIntelliSense, Warning, TEXT("Async scanning already in progress, skipping..."));
         return;
     }
-    UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("Starting async asset scanning..."));
     bIsAsyncScanningInProgress = true;
     bScanCancelled = false;
-    ScanProgressNotification = FLuaExportNotificationManager::ShowScanProgress(TEXT("正在扫描资源..."));
+    ScanProgressNotification = FLuaExportNotificationManager::ShowScanProgress(TEXT("正在初始化扫描..."));
+    
+    // 记录扫描开始时间，确保最小显示时间
+    double ScanStartTime = FPlatformTime::Seconds();
     
     // 使用异步任务执行扫描
-    AsyncTask(ENamedThreads::AnyBackgroundThreadNormalTask, [this]()
+    AsyncTask(ENamedThreads::AnyBackgroundThreadNormalTask, [this, ScanStartTime]()
     {
         TArray<FAssetData> BlueprintAssets;
         TArray<const UField*> NativeTypes;
         
-        // 在后台线程执行扫描
-        FAssetRegistryModule& AssetRegistryModule = FModuleManager::LoadModuleChecked<FAssetRegistryModule>(TEXT("AssetRegistry"));
-        FARFilter Filter;
-        Filter.ClassNames.Add(UBlueprint::StaticClass()->GetFName());
-        AssetRegistryModule.Get().GetAssets(Filter, BlueprintAssets);
+        // 检查设置，决定是否扫描蓝图
+        const UEmmyLuaIntelliSenseSettings* Settings = UEmmyLuaIntelliSenseSettings::Get();
+        bool bShouldScanBlueprints = Settings && Settings->bExportBlueprintFiles;
+        
+        if (bShouldScanBlueprints)
+        {
+            
+            // 在后台线程执行蓝图扫描
+            FAssetRegistryModule& AssetRegistryModule = FModuleManager::LoadModuleChecked<FAssetRegistryModule>(TEXT("AssetRegistry"));
+            FARFilter Filter;
+            Filter.ClassNames.Add(UBlueprint::StaticClass()->GetFName());
+            AssetRegistryModule.Get().GetAssets(Filter, BlueprintAssets);
+        }
+        // 扫描原生类型
         CollectNativeTypes(NativeTypes);
+        
         
         UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("Asset scanning completed. Found %d blueprints, %d native types"), 
                BlueprintAssets.Num(), NativeTypes.Num());
+        
+        // 确保最小显示时间（至少2秒）
+        double ElapsedTime = FPlatformTime::Seconds() - ScanStartTime;
+        double MinDisplayTime = 2.0; // 最小显示2秒
+        if (ElapsedTime < MinDisplayTime)
+        {
+            FPlatformProcess::Sleep(MinDisplayTime - ElapsedTime);
+        }
         
         // 回到主线程处理结果
         AsyncTask(ENamedThreads::GameThread, [this, BlueprintAssets, NativeTypes]()
@@ -1175,27 +1190,59 @@ void ULuaExportManager::OnAsyncScanCompleted(const TArray<FAssetData>& Blueprint
         return;
     }
     UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("Async scan completed. Found %d blueprints, %d native types"), BlueprintAssets.Num(), NativeTypes.Num());
-    FLuaExportNotificationManager::UpdateScanProgressNotification(ScanProgressNotification, TEXT("正在分析需要导出的资源..."), 0.8f);
+    
+    // 检查设置，决定分析消息
+    const UEmmyLuaIntelliSenseSettings* Settings = UEmmyLuaIntelliSenseSettings::Get();
+    bool bShouldAnalyzeBlueprints = Settings && Settings->bExportBlueprintFiles;
+
     PendingBlueprints.Empty();
     PendingNativeTypes.Empty();
-    for (const FAssetData& AssetData : BlueprintAssets)
+    
+    // 计算总项目数（只包括需要分析的项目）
+    int32 TotalItems = (bShouldAnalyzeBlueprints ? BlueprintAssets.Num() : 0) + NativeTypes.Num();
+    int32 ProcessedItems = 0;
+    
+    // 分析蓝图（如果启用）
+    if (bShouldAnalyzeBlueprints)
     {
-        if (AddToPendingBlueprints(AssetData))
+        int32 BlueprintIndex = 0;
+        for (const FAssetData& AssetData : BlueprintAssets)
         {
-            UE_LOG(LogEmmyLuaIntelliSense, Verbose, TEXT("Added blueprint to pending list: %s"), *AssetData.AssetName.ToString());
-        }
-        else
-        {
-            FString AssetHash = GetAssetHash(AssetData.ObjectPath.ToString());
-            if (!AssetHash.IsEmpty())
+            ProcessedItems++;
+            BlueprintIndex++;
+            
+            if (!AddToPendingBlueprints(AssetData))
             {
-                UpdateExportCacheByHash(AssetData.ObjectPath.ToString(), AssetHash);
-                UE_LOG(LogEmmyLuaIntelliSense, VeryVerbose, TEXT("Updated cache for blueprint (no export needed): %s"), *AssetData.AssetName.ToString());
+                FString AssetHash = GetAssetHash(AssetData.ObjectPath.ToString());
+                if (!AssetHash.IsEmpty())
+                {
+                    UpdateExportCacheByHash(AssetData.ObjectPath.ToString(), AssetHash);
+                }
             }
+            
+            // 每处理完一个蓝图都更新进度显示
+            float Progress = 0.8f + (0.15f * ProcessedItems / TotalItems);
+            FString ProgressMessage = FString::Printf(TEXT("分析蓝图进度: %d/%d (总计: %d/%d)"), 
+                BlueprintIndex, BlueprintAssets.Num(), ProcessedItems, TotalItems);
+            
+            // 使用异步调用更新UI，避免阻塞分析线程
+            AsyncTask(ENamedThreads::GameThread, [this, ProgressMessage, Progress]()
+            {
+                if (ScanProgressNotification.IsValid())
+                {
+                    FLuaExportNotificationManager::UpdateScanProgressNotification(ScanProgressNotification, ProgressMessage, Progress);
+                }
+            });
         }
     }
+    
+    // 分析原生类型
+    int32 NativeTypeIndex = 0;
     for (const UField* Field : NativeTypes)
     {
+        ProcessedItems++;
+        NativeTypeIndex++;
+        
         if (Field)
         {
             FString FieldName;
@@ -1206,30 +1253,39 @@ void ULuaExportManager::OnAsyncScanCompleted(const TArray<FAssetData>& Blueprint
                 if (ShouldReexportByHash(NativeTypePath, FieldHash))
                 {
                     PendingNativeTypes.Add(Field);
-                    UE_LOG(LogEmmyLuaIntelliSense, Verbose, TEXT("Added native type to pending list: %s"), *Field->GetName());
                 }
                 else
                 {
                     UpdateExportCacheByHash(NativeTypePath, FieldHash);
-                    UE_LOG(LogEmmyLuaIntelliSense, VeryVerbose, TEXT("Updated cache for native type (no export needed): %s"), *Field->GetName());
                 }
             }
         }
+        float Progress = 0.8f + (0.15f * ProcessedItems / TotalItems);
+        FString ProgressMessage = FString::Printf(TEXT("分析原生类型进度: %d/%d (总计: %d/%d)"), 
+            NativeTypeIndex, NativeTypes.Num(), ProcessedItems, TotalItems);
+        
+        // 使用异步调用更新UI，避免阻塞分析线程
+        AsyncTask(ENamedThreads::GameThread, [this, ProgressMessage, Progress]()
+        {
+            if (ScanProgressNotification.IsValid())
+            {
+                FLuaExportNotificationManager::UpdateScanProgressNotification(ScanProgressNotification, ProgressMessage, Progress);
+            }
+        });
     }
     bIsAsyncScanningInProgress = false;
-    FLuaExportNotificationManager::CompleteScanProgressNotification(ScanProgressNotification, TEXT("扫描完成"), true);
+    FString CompletionMessage = FString::Printf(TEXT("扫描完成！发现 %d 个待导出项"), PendingBlueprints.Num() + PendingNativeTypes.Num());
+    FLuaExportNotificationManager::CompleteScanProgressNotification(ScanProgressNotification, CompletionMessage, true);
     ScanProgressNotification.Reset();
-    UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("Scan analysis completed. Pending exports: %d blueprints, %d native types"), 
-           PendingBlueprints.Num(), PendingNativeTypes.Num());
+
     SaveExportCache();
-    UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("Export cache updated after scan"));
-    
+
     // 检查是否有待导出的文件
     if (HasPendingChanges())
     {
         // 获取设置以确定后续行为
-        const UEmmyLuaIntelliSenseSettings* Settings = UEmmyLuaIntelliSenseSettings::Get();
-        if (Settings && Settings->bAutoStartScanOnStartup)
+        const UEmmyLuaIntelliSenseSettings* ExportSettings = UEmmyLuaIntelliSenseSettings::Get();
+        if (ExportSettings && ExportSettings->bAutoStartScanOnStartup)
         {
             // 自动扫描模式：显示导出确认对话框让用户选择
             if (FModuleManager::Get().IsModuleLoaded("EmmyLuaIntelliSense"))
@@ -1240,14 +1296,8 @@ void ULuaExportManager::OnAsyncScanCompleted(const TArray<FAssetData>& Blueprint
         }
         else
         {
-            // 手动扫描模式：用户已经确认要扫描，直接进行导出
-            UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("Manual scan completed, starting automatic export..."));
             ExportIncremental();
         }
-    }
-    else
-    {
-        UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("No pending changes after scan, no export needed."));
     }
 }
 
