@@ -9,6 +9,7 @@
 #include "EditorStyleSet.h"
 
 TSharedPtr<SNotificationItem> FLuaExportNotificationManager::CurrentConfirmationNotification = nullptr;
+FTimerHandle FLuaExportNotificationManager::ScanConfirmationTimerHandle;
 
 
 void FLuaExportDialog::ShowExportConfirmation()
@@ -140,10 +141,10 @@ TSharedPtr<SNotificationItem> FLuaExportNotificationManager::ShowExportConfirmat
 
 TSharedPtr<SNotificationItem> FLuaExportNotificationManager::ShowScanConfirmation(const FString& Message)
 {
+    
     FNotificationInfo Info(FText::FromString(Message));
     
-    Info.ExpireDuration = 10.0f; // 10秒后自动消失
-    
+    // 不设置ExpireDuration，改为手动控制消失时机
     Info.bFireAndForget = false;
     Info.bUseLargeFont = false;
     Info.bUseThrobber = false;
@@ -168,6 +169,18 @@ TSharedPtr<SNotificationItem> FLuaExportNotificationManager::ShowScanConfirmatio
     TSharedPtr<SNotificationItem> NotificationPtr = FSlateNotificationManager::Get().AddNotification(Info);
     CurrentConfirmationNotification = NotificationPtr;
     CurrentConfirmationNotification->SetCompletionState(SNotificationItem::CS_Pending);
+    
+    // 设置10秒后自动消失的定时器
+    if (GWorld)
+    {
+        GWorld->GetTimerManager().SetTimer(
+            ScanConfirmationTimerHandle,
+            FTimerDelegate::CreateStatic(&FLuaExportNotificationManager::OnScanConfirmationAutoExpire),
+            10.0f,
+            false
+        );
+    }
+    
     return NotificationPtr;
 }
 
@@ -263,11 +276,17 @@ void FLuaExportNotificationManager::OnExportSkipped()
 
 void FLuaExportNotificationManager::OnScanConfirmed()
 {
+    // 清除定时器
+    if (GWorld && ScanConfirmationTimerHandle.IsValid())
+    {
+        GWorld->GetTimerManager().ClearTimer(ScanConfirmationTimerHandle);
+    }
+    
     // 关闭确认通知
     if (CurrentConfirmationNotification.IsValid())
     {
         CurrentConfirmationNotification->SetCompletionState(SNotificationItem::CS_Success);
-        CurrentConfirmationNotification->ExpireAndFadeout();
+        CurrentConfirmationNotification->Fadeout();
         CurrentConfirmationNotification.Reset();
     }
     
@@ -280,11 +299,45 @@ void FLuaExportNotificationManager::OnScanConfirmed()
 
 void FLuaExportNotificationManager::OnScanSkipped()
 {
+    // 清除定时器
+    if (GWorld && ScanConfirmationTimerHandle.IsValid())
+    {
+        GWorld->GetTimerManager().ClearTimer(ScanConfirmationTimerHandle);
+    }
+    
     // 关闭确认通知
     if (CurrentConfirmationNotification.IsValid())
     {
         CurrentConfirmationNotification->SetCompletionState(SNotificationItem::CS_None);
-        CurrentConfirmationNotification->ExpireAndFadeout();
+        CurrentConfirmationNotification->Fadeout();
+        CurrentConfirmationNotification.Reset();
+    }
+}
+
+void FLuaExportNotificationManager::OnScanConfirmationAutoExpire()
+{
+    // 安全检查：确保世界和定时器管理器仍然有效
+    if (!GWorld || !IsValid(GWorld))
+    {
+        // 如果世界无效，清理通知引用并返回
+        if (CurrentConfirmationNotification.IsValid())
+        {
+            CurrentConfirmationNotification.Reset();
+        }
+        return;
+    }
+    
+    // 清除定时器句柄
+    if (ScanConfirmationTimerHandle.IsValid())
+    {
+        GWorld->GetTimerManager().ClearTimer(ScanConfirmationTimerHandle);
+    }
+    
+    // 10秒后自动消失
+    if (CurrentConfirmationNotification.IsValid())
+    {
+        CurrentConfirmationNotification->SetCompletionState(SNotificationItem::CS_None);
+        CurrentConfirmationNotification->Fadeout();
         CurrentConfirmationNotification.Reset();
     }
 }
@@ -338,5 +391,20 @@ void FLuaExportNotificationManager::OnScanCancelled()
     if (ULuaExportManager* ExportManager = GEditor->GetEditorSubsystem<ULuaExportManager>())
     {
         ExportManager->CancelAsyncScan();
+    }
+}
+
+void FLuaExportNotificationManager::Cleanup()
+{
+    // 清理定时器
+    if (GWorld && IsValid(GWorld) && ScanConfirmationTimerHandle.IsValid())
+    {
+        GWorld->GetTimerManager().ClearTimer(ScanConfirmationTimerHandle);
+    }
+    
+    // 清理通知引用
+    if (CurrentConfirmationNotification.IsValid())
+    {
+        CurrentConfirmationNotification.Reset();
     }
 }

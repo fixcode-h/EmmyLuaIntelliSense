@@ -26,6 +26,9 @@ void FEmmyLuaIntelliSenseModule::ShutdownModule()
 {
 	UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("EmmyLuaIntelliSense module shutting down..."));
 	
+	// 清理通知管理器
+	FLuaExportNotificationManager::Cleanup();
+	
 	UnregisterSettings();
 	
 	FCoreDelegates::OnPostEngineInit.RemoveAll(this);
@@ -79,8 +82,21 @@ void FEmmyLuaIntelliSenseModule::InitializeLuaExportManager()
 		UE_LOG(LogEmmyLuaIntelliSense, Error, TEXT("Failed to get ULuaExportManager instance"));
 		return;
 	}
+
+#if !PLATFORM_WINDOWS
+	return;
+#endif
 	
-	// 检查设置，决定是否自动开始扫描
+	if (IsRunningCommandlet() || !GIsEditor)
+	{
+		return ;
+	}
+
+	if (!FSlateApplication::IsInitialized())
+	{
+		return;
+	}
+
 	const UEmmyLuaIntelliSenseSettings* Settings = UEmmyLuaIntelliSenseSettings::Get();
 	if (Settings && Settings->bAutoStartScanOnStartup)
 	{

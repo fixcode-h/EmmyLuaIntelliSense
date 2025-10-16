@@ -83,6 +83,9 @@ public:
 
     /** 扫描取消回调 */
     static void OnScanCancelled();
+    
+    /** 清理所有通知和定时器（模块卸载时调用） */
+    static void Cleanup();
 
 private:
     /** 创建通知信息 */
@@ -91,6 +94,12 @@ private:
     /** 获取通知管理器 */
     static TSharedPtr<SNotificationList> GetNotificationList();
     
+    /** 扫描确认通知自动消失回调 */
+    static void OnScanConfirmationAutoExpire();
+    
     /** 当前确认通知的引用 */
     static TSharedPtr<SNotificationItem> CurrentConfirmationNotification;
+    
+    /** 扫描确认通知的自动消失定时器 */
+    static FTimerHandle ScanConfirmationTimerHandle;
 };
