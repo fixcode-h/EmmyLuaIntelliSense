@@ -1,0 +1,277 @@
+---
+description: 
+alwaysApply: true
+enabled: true
+updatedAt: 2025-11-13T06:26:47.020Z
+provider: 
+---
+
+# UE UObject类与结构体代码格式规范
+
+## 文件头部结构
+
+### UCLASS类文件头部
+```cpp
+// Copyright Epic Games, Inc. All Rights Reserved.
+
+#pragma once
+
+#include "CoreMinimal.h"
+#include "ClassName.generated.h"
+
+UCLASS()
+class AClassName : public AActor
+{
+    GENERATED_BODY()
+```
+
+### USTRUCT结构体文件头部
+```cpp
+// Copyright Epic Games, Inc. All Rights Reserved.
+
+#pragma once
+
+#include "CoreMinimal.h"
+#include "StructName.generated.h"
+
+USTRUCT(BlueprintType)
+struct FStructName
+{
+    GENERATED_BODY()
+```
+
+## 变量声明格式
+
+### 1. 非UPROPERTY变量格式
+- **访问修饰符顺序**: private → protected → public
+- **对齐要求**: 变量类型和变量名需要对齐
+- **注释格式**: 行尾单行注释
+- **空行**: 不同访问修饰符之间使用空行分隔，同一修饰符内的变量之间不留空行分隔
+
+```cpp
+private:
+    float                PrivateFloat;  // 私有浮点数
+    EActorBeginPlayState PrivateState;  // 私有状态
+    
+protected:
+    float                ProtectedFloat; // 受保护浮点数
+    EActorBeginPlayState ProtectedState; // 受保护状态
+    
+public:
+    float                PublicFloat;    // 公有浮点数
+    EActorBeginPlayState PublicState;    // 公有状态
+```
+
+### 2. UPROPERTY变量格式
+- **访问修饰符顺序**: private → protected → public
+- **注释格式**: 变量上方单行注释
+- **UPROPERTY宏**: 紧贴变量声明
+- **对齐要求**: UPROPERTY变量之间不需要对齐
+
+```cpp
+private:
+    // 私有浮点数
+    UPROPERTY()
+    float PrivateFloat; 
+    
+    // 私有状态
+    UPROPERTY()
+    EActorBeginPlayState PrivateState; 
+    
+protected:
+    // 受保护浮点数
+    UPROPERTY()
+    float ProtectedFloat;
+    
+public:
+    // 公有浮点数
+    UPROPERTY()
+    float PublicFloat;
+```
+
+### 3. 同一访问修饰符下混合使用非UPROPERTY和UPROPERTY变量
+- **重要**: 相同访问修饰符下，非UPROPERTY变量和UPROPERTY变量必须用访问修饰符再次隔开
+- **顺序**: 非UPROPERTY变量在前，UPROPERTY变量在后
+- **分隔**: 使用访问修饰符重新声明来分隔两类变量
+
+```cpp
+private:
+    bool                        bDeathStarted = false; // 死亡标记（避免重复触发死亡事件）
+    
+private:
+    // AttributeSet缓存
+    UPROPERTY()
+    TObjectPtr<UNkAttributeSet> CachedAttributeSet;
+```
+
+## 函数声明格式
+
+### 访问修饰符顺序
+函数声明按以下顺序排列：**public → protected → private**
+
+### 1. 接口函数注释格式
+- 使用 `Begin/End` 注释包围
+- 注释需要对齐
+
+```cpp
+public:
+    // Begin IAbilitySystemInterface
+    virtual void GiveAbility(const FGameplayAbilitySpec& AbilitySpec) override;
+    virtual void RemoveAbility(const FGameplayAbilitySpecHandle Handle) override;
+    // End IAbilitySystemInterface
+```
+
+### 2. UFUNCTION函数注释格式
+- 使用多行文档注释格式
+- 注释紧贴UFUNCTION宏上方
+
+```cpp
+/**
+ * 测试函数
+ */
+UFUNCTION()
+void TestFunction();
+```
+
+### 3. 普通函数注释格式
+- 使用行尾单行注释
+- **对齐要求**: 函数返回类型、函数名、参数、注释需要对齐
+
+```cpp
+void            TestFunction();                                  // 测试函数
+UAnimMontage*   TestFunction2(float Param1, int32 Param2);      // 测试函数2
+bool            TestFunction3(const FVector& Location) const;   // 测试函数3
+```
+
+### 4. 功能分组注释格式
+- 使用分隔线和功能标题
+- **对齐要求**: 同一组内的函数返回类型、函数名、参数、注释需要对齐
+
+```cpp
+// ---------------------------------------------------------
+// Ability相关
+// ---------------------------------------------------------
+void            GrantAbility(const FGameplayAbilitySpec& Spec);     // 授予能力
+void            RemoveAbility(FGameplayAbilitySpecHandle Handle);   // 移除能力
+UAbilitySet*    GetAbilitySet() const;                              // 获取能力集
+```
+
+### 5. 私有函数命名规则
+- 私有函数名以下划线 `_` 开头
+
+```cpp
+private:
+    void _Fun(); // 私有函数
+```
+
+## 整体结构顺序
+
+### UCLASS类结构顺序
+
+1. **文件头部**: 版权声明、pragma once、includes、UCLASS宏
+2. **变量声明区域**:
+   - 同一访问修饰符下的顺序：
+     - 非UPROPERTY变量（需对齐）
+     - 访问修饰符再次声明
+     - UPROPERTY变量（不需对齐）
+   - 访问修饰符顺序: private → protected → public
+3. **函数声明区域** (public → protected → private):
+   - 接口函数
+   - UFUNCTION函数
+   - 普通函数
+   - 功能分组函数
+   - 私有函数
+
+### USTRUCT结构体结构顺序
+
+1. **文件头部**: 版权声明、pragma once、includes、USTRUCT宏
+2. **UPROPERTY变量区域**:
+   - **无访问修饰符**: 结构体成员默认为public，不使用访问修饰符
+   - **注释格式**: 变量上方单行注释
+   - **对齐要求**: UPROPERTY变量之间不需要对齐
+   - **空行**: 不同功能组之间使用空行分隔
+3. **构造函数**（可选）:
+   - 用于初始化默认值
+4. **普通函数**（可选）:
+   - 辅助函数、运算符重载等
+   - **对齐要求**: 函数返回类型、函数名、参数、注释需要对齐
+
+#### 结构体示例
+
+```cpp
+USTRUCT(BlueprintType)
+struct FNkItemData
+{
+    GENERATED_BODY()
+
+    // 物品唯一ID
+    UPROPERTY(EditAnywhere, BlueprintReadWrite)
+    int32 ItemID = 0;
+
+    // 物品名称
+    UPROPERTY(EditAnywhere, BlueprintReadWrite)
+    FText ItemName;
+
+    // 物品数量
+    UPROPERTY(EditAnywhere, BlueprintReadWrite)
+    int32 Quantity = 1;
+
+    // 物品品质
+    UPROPERTY(EditAnywhere, BlueprintReadWrite)
+    EItemQuality Quality = EItemQuality::Common;
+
+    // 构造函数
+    FNkItemData()
+        : ItemID(0)
+        , Quantity(1)
+        , Quality(EItemQuality::Common)
+    {}
+
+    // 辅助函数（如有需要）
+    bool IsValid() const { return ItemID > 0; }
+    bool IsStackable() const { return Quantity > 1; }
+};
+```
+
+#### 结构体格式要点
+
+- **访问修饰符**: 结构体不使用private/protected/public（默认public）
+- **UPROPERTY变量**: 注释在变量上方，变量之间不需要对齐
+- **功能分组**: 使用空行分隔不同功能组的变量
+- **构造函数**: 放在变量声明之后，使用初始化列表格式
+- **辅助函数**: 放在构造函数之后，简单函数可以内联实现
+
+## CPP文件函数实现顺序
+
+- **顺序一致性**: .cpp文件中函数实现的顺序必须与.h文件中函数声明的顺序完全一致
+- **分组保持**: 保持与头文件相同的功能分组和访问修饰符顺序
+- **便于维护**: 确保头文件和实现文件的对应关系清晰，方便代码维护和查找
+
+## 格式要点
+
+### UCLASS类格式要点
+
+- **对齐**: 
+  - 非UPROPERTY变量类型和变量名必须对齐
+  - 普通函数（非UFUNCTION）的返回类型、函数名、参数、注释必须对齐
+  - 功能分组内的函数必须对齐
+  - UPROPERTY变量不需要对齐
+  - UFUNCTION函数不需要对齐（因为有UFUNCTION宏）
+- **空行**: 不同访问修饰符之间、不同功能组之间使用空行分隔
+- **注释**: 根据变量/函数类型使用相应的注释格式
+- **命名**: 私有函数以 `_` 开头
+- **顺序**: 
+  - 严格按照规定的访问修饰符顺序排列
+  - 同一访问修饰符下，非UPROPERTY变量在前，UPROPERTY变量在后，用访问修饰符再次声明分隔
+- **实现一致**: .cpp文件函数实现顺序与.h文件声明顺序保持一致
+
+### USTRUCT结构体格式要点
+
+- **访问修饰符**: 不使用访问修饰符（结构体成员默认public）
+- **对齐**: 
+  - UPROPERTY变量不需要对齐（注释在上方）
+  - 辅助函数需要对齐（如有多个）
+- **空行**: 不同功能组之间使用空行分隔
+- **注释**: UPROPERTY变量使用上方单行注释
+- **初始化**: 在声明时提供默认值或使用构造函数
+- **命名**: 结构体名以 `F` 开头（UE规范）

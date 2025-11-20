@@ -1,0 +1,11 @@
+---
+description: 
+alwaysApply: true
+enabled: true
+updatedAt: 2025-11-13T09:31:04.642Z
+provider: 
+---
+
+1、编译测试用下面的指令
+& "D:\Program Files\Epic Games\UE_4.26\Engine\Build\BatchFiles\Build.bat" GMProjectEditor Win64 DebugGame -Project="E:\UE\GMProject\GMProject.uproject" -WaitMutex -FromMsBuild
+2、代码规则请使用UEUObjectCodeFormat里面的规则描述
