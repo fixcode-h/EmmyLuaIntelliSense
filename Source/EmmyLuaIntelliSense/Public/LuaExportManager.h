@@ -18,23 +18,23 @@ class EMMYLUAINTELLISENSE_API ULuaExportManager : public UEditorSubsystem
     GENERATED_BODY()
 
 private:
-    bool                        bInitialized;                                    // 是否已初始化
-    FString                     OutputDir;                                       // 输出目录
-    TSet<FString>              PendingBlueprints;                               // 待导出的蓝图资源
-    TSet<TWeakObjectPtr<const UField>> PendingNativeTypes;                      // 待导出的原生类型
-    FString                     ExportCacheFilePath;                             // 导出状态缓存文件路径
-    TMap<FString, FString>      ExportedFilesHashCache;                         // 已导出文件的哈希值缓存
-    mutable TMap<const UField*, FString> FieldHashCache;                         // UField的Hash缓存
-    mutable TMap<const UField*, double>  FieldHashCacheTimestamp;                // UField Hash缓存的时间戳
-    bool                        bIsAsyncScanningInProgress;                      // 异步扫描相关
-    TSharedPtr<class SNotificationItem> ScanProgressNotification;               // 扫描进度通知
-    bool                        bScanCancelled;                                  // 扫描是否被用户取消
-    TArray<FAssetData>          ScannedBlueprintAssets;                         // 分帧处理相关
-    TArray<const UField*>       ScannedNativeTypes;                             // 分帧处理相关
-    bool                        bIsFramedProcessingInProgress;                   // 分帧处理相关
-    int32                       CurrentBlueprintIndex;                          // 分帧处理相关
-    int32                       CurrentNativeTypeIndex;                         // 分帧处理相关
-    FTimerHandle                FramedProcessingTimerHandle;                     // 分帧处理相关
+    bool                                    bInitialized;                                    // 是否已初始化
+    FString                                 OutputDir;                                       // 输出目录
+    TSet<FString>                           PendingBlueprints;                              // 待导出的蓝图资源
+    TSet<TWeakObjectPtr<const UField>>      PendingNativeTypes;                              // 待导出的原生类型
+    FString                                 ExportCacheFilePath;                             // 导出状态缓存文件路径
+    TMap<FString, FString>                  ExportedFilesHashCache;                         // 已导出文件的哈希值缓存
+    mutable TMap<const UField*, FString>    FieldHashCache;                                  // UField的Hash缓存
+    mutable TMap<const UField*, double>    FieldHashCacheTimestamp;                         // UField Hash缓存的时间戳
+    bool                                    bIsAsyncScanningInProgress;                      // 异步扫描相关
+    TSharedPtr<class SNotificationItem>     ScanProgressNotification;                        // 扫描进度通知
+    bool                                    bScanCancelled;                                  // 扫描是否被用户取消
+    TArray<FAssetData>                      ScannedBlueprintAssets;                         // 分帧处理相关
+    TArray<const UField*>                   ScannedNativeTypes;                             // 分帧处理相关
+    bool                                    bIsFramedProcessingInProgress;                   // 分帧处理相关
+    int32                                   CurrentBlueprintIndex;                           // 分帧处理相关
+    int32                                   CurrentNativeTypeIndex;                          // 分帧处理相关
+    FTimerHandle                            FramedProcessingTimerHandle;                     // 分帧处理相关
 
     // 缓存失效时间（秒）
     static constexpr double HASH_CACHE_EXPIRE_TIME = 300.0; // 5分钟
