@@ -41,9 +41,24 @@ void FEmmyLuaIntelliSenseModule::ShutdownModule()
 	}
 }
 
-void FEmmyLuaIntelliSenseModule::OnAssetRegistryFilesLoaded()
+void FEmmyLuaIntelliSenseModule::ShowExportDialogIfNeeded()
 {
-	InitializeLuaExportManager();
+	ULuaExportManager* ExportManager = ULuaExportManager::Get();
+	if (ExportManager && ExportManager->HasPendingChanges())
+	{
+		int32 BlueprintCount = ExportManager->GetPendingBlueprintsCount();
+		int32 NativeTypeCount = ExportManager->GetPendingNativeTypesCount();
+		int32 CoreFileCount = ExportManager->GetPendingCoreFilesCount();
+		int32 TotalCount = BlueprintCount + NativeTypeCount + CoreFileCount;
+		
+		UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("Showing Lua export dialog due to pending changes (%d blueprints, %d native types, %d core files, %d total files)..."), BlueprintCount, NativeTypeCount, CoreFileCount, TotalCount);
+		
+		FLuaExportDialog::ShowExportConfirmation(BlueprintCount, NativeTypeCount, CoreFileCount);
+	}
+	else
+	{
+		UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("No pending changes, skipping export dialog."));
+	}
 }
 
 void FEmmyLuaIntelliSenseModule::OnPostEngineInit()
@@ -70,6 +85,11 @@ void FEmmyLuaIntelliSenseModule::OnPostEngineInit()
 	{
 		OnAssetRegistryFilesLoaded();
 	}
+}
+
+void FEmmyLuaIntelliSenseModule::OnAssetRegistryFilesLoaded()
+{
+	InitializeLuaExportManager();
 }
 
 void FEmmyLuaIntelliSenseModule::InitializeLuaExportManager()
@@ -105,26 +125,6 @@ void FEmmyLuaIntelliSenseModule::InitializeLuaExportManager()
 	else
 	{
 		FLuaExportDialog::ShowScanConfirmation();
-	}
-}
-
-void FEmmyLuaIntelliSenseModule::ShowExportDialogIfNeeded()
-{
-	ULuaExportManager* ExportManager = ULuaExportManager::Get();
-	if (ExportManager && ExportManager->HasPendingChanges())
-	{
-		int32 BlueprintCount = ExportManager->GetPendingBlueprintsCount();
-		int32 NativeTypeCount = ExportManager->GetPendingNativeTypesCount();
-		int32 CoreFileCount = ExportManager->GetPendingCoreFilesCount();
-		int32 TotalCount = BlueprintCount + NativeTypeCount + CoreFileCount;
-		
-		UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("Showing Lua export dialog due to pending changes (%d blueprints, %d native types, %d core files, %d total files)..."), BlueprintCount, NativeTypeCount, CoreFileCount, TotalCount);
-		
-		FLuaExportDialog::ShowExportConfirmation(BlueprintCount, NativeTypeCount, CoreFileCount);
-	}
-	else
-	{
-		UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("No pending changes, skipping export dialog."));
 	}
 }
 

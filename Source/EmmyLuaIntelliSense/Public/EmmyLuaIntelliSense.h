@@ -11,31 +11,20 @@ DECLARE_LOG_CATEGORY_EXTERN(LogEmmyLuaIntelliSense, Log, All);
 class FEmmyLuaIntelliSenseModule : public IModuleInterface
 {
 public:
+    // Begin IModuleInterface
+    virtual void StartupModule() override;
+    virtual void ShutdownModule() override;
+    // End IModuleInterface
 
-	/** IModuleInterface implementation */
-	virtual void StartupModule() override;
-	virtual void ShutdownModule() override;
-	
-	/** Shows the export dialog if there are pending changes */
-	void ShowExportDialogIfNeeded();
-
-private:
-	/** Called when the engine has finished initialization */
-	void OnPostEngineInit();
-	
-	/** Called when asset registry has finished loading all files */
-	void OnAssetRegistryFilesLoaded();
-	
-	/** Initialize the Lua Export Manager */
-	void InitializeLuaExportManager();
-	
-	/** Register plugin settings */
-	void RegisterSettings();
-	
-	/** Unregister plugin settings */
-	void UnregisterSettings();
+    void            ShowExportDialogIfNeeded();                                 // 如果有待处理的变更，显示导出对话框
 
 private:
-	/** Flag to prevent multiple initializations */
-	bool bIsInitialized = false;
+    void            OnPostEngineInit();                                        // 引擎初始化完成时调用
+    void            OnAssetRegistryFilesLoaded();                              // 资源注册表文件加载完成时调用
+    void            InitializeLuaExportManager();                               // 初始化Lua导出管理器
+    void            RegisterSettings();                                         // 注册插件设置
+    void            UnregisterSettings();                                      // 注销插件设置
+
+private:
+    bool            bIsInitialized = false;                                     // 防止多次初始化的标志
 };

@@ -227,18 +227,28 @@ bool ULuaExportManager::HasPendingChanges() const
 {
     return PendingBlueprints.Num() > 0 || PendingNativeTypes.Num() > 0;
 }
+
+void ULuaExportManager::ClearPendingChanges()
+{
+    PendingBlueprints.Empty();
+    PendingNativeTypes.Empty();
+}
+
 int32 ULuaExportManager::GetPendingFilesCount() const
 {
     return GetPendingBlueprintsCount() + GetPendingNativeTypesCount() + GetPendingCoreFilesCount();
 }
+
 int32 ULuaExportManager::GetPendingBlueprintsCount() const
 {
     return PendingBlueprints.Num();
 }
+
 int32 ULuaExportManager::GetPendingNativeTypesCount() const
 {
     return PendingNativeTypes.Num();
 }
+
 int32 ULuaExportManager::GetPendingCoreFilesCount() const
 {
     if (PendingNativeTypes.Num() > 0)
@@ -246,11 +256,6 @@ int32 ULuaExportManager::GetPendingCoreFilesCount() const
         return 3; 
     }
     return 0;
-}
-void ULuaExportManager::ClearPendingChanges()
-{
-    PendingBlueprints.Empty();
-    PendingNativeTypes.Empty();
 }
 bool ULuaExportManager::AddToPendingBlueprints(const FAssetData& AssetData)
 {
