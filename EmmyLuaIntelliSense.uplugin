@@ -19,7 +19,7 @@
 	"Modules": [
 		{
 			"Name": "EmmyLuaIntelliSense",
-			"Type": "Editor",
+			"Type": "EditorNoCommandlet",
 			"LoadingPhase": "Default",
 			"WhitelistPlatforms": [ "Win64", "Win32", "Mac", "Linux" ]
 		}

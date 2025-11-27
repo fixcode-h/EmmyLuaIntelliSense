@@ -17,6 +17,12 @@ DEFINE_LOG_CATEGORY(LogEmmyLuaIntelliSense);
 
 void FEmmyLuaIntelliSenseModule::StartupModule()
 {
+	// 只在Editor中执行，不在commandlet中执行
+	if (IsRunningCommandlet() || !GIsEditor)
+	{
+		return;
+	}
+
 	RegisterSettings();
 	
 	FCoreDelegates::OnPostEngineInit.AddRaw(this, &FEmmyLuaIntelliSenseModule::OnPostEngineInit);
@@ -24,6 +30,11 @@ void FEmmyLuaIntelliSenseModule::StartupModule()
 
 void FEmmyLuaIntelliSenseModule::ShutdownModule()
 {
+	// 只在Editor中执行，不在commandlet中执行
+	if (IsRunningCommandlet() || !GIsEditor)
+	{
+		return;
+	}
 	UE_LOG(LogEmmyLuaIntelliSense, Log, TEXT("EmmyLuaIntelliSense module shutting down..."));
 	
 	// 清理通知管理器
