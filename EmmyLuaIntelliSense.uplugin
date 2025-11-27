@@ -23,12 +23,5 @@
 			"LoadingPhase": "Default",
 			"WhitelistPlatforms": [ "Win64", "Win32", "Mac", "Linux" ]
 		}
-	],
-	"Plugins": [
-		{
-			"Name": "UnLua",
-			"Enabled": true,
-			"Optional": true
-		}
 	]
 }
